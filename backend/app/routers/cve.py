@@ -124,33 +124,23 @@ def list_cves(
     # Get items first
     items = query.offset((page - 1) * page_size).limit(page_size).all()
     
-    # Determine total count
+    # Determine total count - always calculate accurate count for proper pagination
     if not items and page == 1:
         # No results on first page
         total = 0
     elif len(items) < page_size and page == 1:
         # We have all results on first page
         total = len(items)
-    elif not need_vendor_join and not need_product_join and not q:
-        # No filters, no search - use approximate count or skip count
-        # For large datasets, skip count for better performance
-        if page == 1:
-            total = len(items) + 1 if len(items) == page_size else len(items)
-        else:
-            # For subsequent pages, estimate
-            total = page * page_size
     else:
-        # Only perform count when necessary and limit to first page
+        # Always calculate accurate total count
         try:
-            if page == 1:
-                # Count only for first page
-                total = query.limit(10000).count()  # Cap at 10k to prevent timeouts
-            else:
-                # For subsequent pages, just estimate
-                total = page * page_size
+            total = query.count()
         except:
             # Fallback if count fails
-            total = page * page_size
+            if page == 1:
+                total = len(items) + 1 if len(items) == page_size else len(items)
+            else:
+                total = page * page_size
     
     # Format response - rejoin to get vendor and product names
     vendor_map = {}

@@ -1,0 +1,9 @@
+- [x] 后端API支持sort_by参数（published_date/modified_date）
+- [x] 后端API支持sort_order参数（asc/desc）
+- [x] 前端显示排序字段选择器
+- [x] 前端显示排序方向选择器
+- [x] 排序参数正确传递到API请求
+- [x] URL参数保持排序状态
+- [x] 默认按发布日期降序排序
+- [x] 排序与筛选条件协同工作
+- [x] 排序与分页协同工作

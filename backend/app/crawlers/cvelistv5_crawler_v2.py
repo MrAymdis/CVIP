@@ -281,10 +281,22 @@ class CVEListV5CrawlerV2:
             # Check if CVE already exists
             existing = db.query(CVE).filter(CVE.cve_id == cve_id).first()
             if existing:
-                # Update existing CVE
+                # Update existing CVE - only update actual database columns, not relations
                 for key, value in cve_dict.items():
-                    if key not in ["vendor_name", "product_name"] and value is not None:
+                    if key not in ["vendor_name", "product_name", "references", "exploits"] and value is not None:
                         setattr(existing, key, value)
+                
+                # Update references
+                refs = cve_dict.get("references", [])
+                if refs:
+                    self.save_references_to_db(cve_id, refs, db)
+                
+                # Update exploits
+                exploits = cve_dict.get("exploits", [])
+                if exploits:
+                    self.save_exploits_to_db(cve_id, exploits, db)
+                    existing.exploits_count = len(exploits)
+                
                 return True
 
             # Get or create vendor
@@ -346,6 +358,7 @@ class CVEListV5CrawlerV2:
                 affected_versions=cve_dict.get("affected_versions", []),
             )
             db.add(cve)
+            db.flush()  # Ensure CVE is in session before adding related data
             
             # Save references
             refs = cve_dict.get("references", [])
@@ -356,6 +369,7 @@ class CVEListV5CrawlerV2:
             exploits = cve_dict.get("exploits", [])
             if exploits:
                 self.save_exploits_to_db(cve_id, exploits, db)
+                cve.exploits_count = len(exploits)
             
             return True
 
@@ -421,11 +435,6 @@ class CVEListV5CrawlerV2:
                     reliability_score=exp.get("reliability_score"),
                 )
                 db.add(exploit)
-            
-            # Update exploits_count in CVE table
-            cve = db.query(CVE).filter(CVE.cve_id == cve_id).first()
-            if cve:
-                cve.exploits_count = len(exploits)
             
             return True
         except Exception as e:

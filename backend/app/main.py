@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import cve, stats
+from app.routers import cve, stats, vulnerability, unified_search
 from app.database import engine, Base
 
 # Create database tables
@@ -26,6 +26,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(cve.router, prefix=settings.API_V1_PREFIX, tags=["CVE"])
+app.include_router(vulnerability.router, prefix=settings.API_V1_PREFIX + "/vulnerability", tags=["Vulnerability"])
+app.include_router(unified_search.router, prefix=settings.API_V1_PREFIX + "/search", tags=["Unified Search"])
 app.include_router(stats.router, prefix=settings.API_V1_PREFIX, tags=["Stats"])
 
 

@@ -119,6 +119,10 @@ class EPSSCrawler:
         
         return len(scores)
     
+    async def sync(self, days: int = 1):
+        """Sync EPSS scores (alias for sync_recent)."""
+        return await self.sync_recent(days=days)
+    
     async def sync_for_cves(self, cve_ids: List[str]):
         """Sync EPSS scores for specific CVEs."""
         print(f"Fetching EPSS scores for {len(cve_ids)} CVEs")
