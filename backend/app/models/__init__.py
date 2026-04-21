@@ -4,6 +4,7 @@ from .reference import Reference
 from .vendor import Vendor
 from .product import Product
 from .cwe import CWE
-from .vulnerability import Vulnerability, VulnerabilityReference
+from .vulnerability import CNVDVulnerability, CNVDVulnerabilityReference
+from .osv import OSVVulnerability
 
-__all__ = ["CVE", "Exploit", "Reference", "Vendor", "Product", "CWE", "Vulnerability", "VulnerabilityReference"]
+__all__ = ["CVE", "Exploit", "Reference", "Vendor", "Product", "CWE", "CNVDVulnerability", "CNVDVulnerabilityReference", "OSVVulnerability"]

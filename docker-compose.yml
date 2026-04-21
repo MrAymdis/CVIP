@@ -56,7 +56,7 @@ services:
       dockerfile: Dockerfile
     container_name: cve-frontend
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8006
+      - NEXT_PUBLIC_API_URL=http://cve-backend:8000
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     volumes:

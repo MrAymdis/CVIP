@@ -80,8 +80,8 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
     );
   }
   
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8006';
   const isCVE = vuln_id.startsWith('CVE-');
+  const isCNVD = vuln_id.startsWith('CNVD-');
   
   useEffect(() => {
     const fetchData = async () => {
@@ -89,21 +89,21 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
       setNotFoundError(false);
       try {
         if (isCVE) {
-          const response = await fetch(`${apiUrl}/api/v1/cve/${vuln_id}`);
+          const response = await fetch(`/api/v1/cve/${vuln_id}`);
           if (!response.ok) {
             setNotFoundError(true);
             return;
           }
           const cveData = await response.json();
           
-          const refResponse = await fetch(`${apiUrl}/api/v1/cve/${vuln_id}/references`);
+          const refResponse = await fetch(`/api/v1/cve/${vuln_id}/references`);
           let refs: CVEReference[] = [];
           if (refResponse.ok) {
             refs = await refResponse.json();
           }
           setReferences(refs);
           
-          const exploitResponse = await fetch(`${apiUrl}/api/v1/cve/${vuln_id}/exploits`);
+          const exploitResponse = await fetch(`/api/v1/cve/${vuln_id}/exploits`);
           let exps: Exploit[] = [];
           if (exploitResponse.ok) {
             exps = await exploitResponse.json();
@@ -132,13 +132,43 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
             vendor_name: cveData.vendor_name || null,
             product_name: cveData.product_name || null
           });
-        } else {
-          const response = await fetch(`${apiUrl}/api/v1/vulnerability/${vuln_id}`);
+        } else if (isCNVD) {
+          const response = await fetch(`/api/v1/vulnerability/${vuln_id}`);
           if (!response.ok) {
             setNotFoundError(true);
             return;
           }
           setData(await response.json());
+        } else {
+          const response = await fetch(`/api/v1/osv/${vuln_id}`);
+          if (!response.ok) {
+            setNotFoundError(true);
+            return;
+          }
+          const osvData = await response.json();
+          const dbSpecific = osvData.database_specific || {};
+          setData({
+            vuln_id: osvData.osv_id,
+            title: osvData.summary || osvData.osv_id,
+            description: osvData.details || '',
+            source: 'osv',
+            severity: dbSpecific.severity || '',
+            cvss_v3_score: null,
+            cvss_v3_severity: null,
+            cvss_v4_score: null,
+            cvss_v4_severity: null,
+            published_date: osvData.published,
+            modified_date: osvData.modified,
+            cwe_ids: dbSpecific.cwe_ids || [],
+            related_cve_ids: osvData.related || [],
+            references: (osvData.references || []).map((r: { url: string }) => ({ url: r.url })),
+            tags: [],
+            data_sources: ['osv'],
+            affected_versions: null,
+            exploits_count: 0,
+            vendor_name: null,
+            product_name: null
+          });
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -149,7 +179,7 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
     };
     
     fetchData();
-  }, [vuln_id, apiUrl, isCVE]);
+  }, [vuln_id, isCVE, isCNVD]);
   
   const goBack = () => {
     router.back();
@@ -186,11 +216,13 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
     medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
     low: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
     info: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+    moderate: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
     CRITICAL: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
     HIGH: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
     MEDIUM: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
     LOW: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
     INFO: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+    MODERATE: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -224,8 +256,14 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${severityColors[data.severity] || 'bg-gray-100 text-gray-700'}`}>
               {data.severity?.toUpperCase() || 'UNKNOWN'}
             </span>
-            <span className="px-3 py-1 bg-muted rounded-full text-sm">
-              {isCVE ? 'CVE' : 'Vulnerability'}
+            <span className={`px-3 py-1 rounded-full text-sm ${
+              isCVE 
+                ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
+                : isCNVD
+                  ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                  : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+            }`}>
+              {isCVE ? 'CVE' : isCNVD ? 'CNVD' : 'OSV'}
             </span>
             {data.exploits_count && data.exploits_count > 0 && (
               <span className="px-3 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-full text-sm font-medium flex items-center gap-1">

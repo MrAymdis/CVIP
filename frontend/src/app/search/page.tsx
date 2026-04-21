@@ -25,6 +25,7 @@ interface SearchResponse {
   data: Vulnerability[];
   cve_count: number;
   vulnerability_count: number;
+  osv_count: number;
 }
 
 const severityColors: Record<string, string> = {
@@ -32,10 +33,12 @@ const severityColors: Record<string, string> = {
   HIGH: "bg-orange-500 text-white",
   MEDIUM: "bg-yellow-500 text-black",
   LOW: "bg-blue-500 text-white",
+  MODERATE: "bg-yellow-500 text-black",
   critical: "bg-red-500 text-white",
   high: "bg-orange-500 text-white",
   medium: "bg-yellow-500 text-black",
   low: "bg-blue-500 text-white",
+  moderate: "bg-yellow-500 text-black",
 };
 
 const severityLabels: Record<string, string> = {
@@ -43,10 +46,12 @@ const severityLabels: Record<string, string> = {
   HIGH: "高危",
   MEDIUM: "中危",
   LOW: "低危",
+  MODERATE: "中危",
   critical: "严重",
   high: "高危",
   medium: "中危",
   low: "低危",
+  moderate: "中危",
 };
 
 export default function SearchPage() {
@@ -185,7 +190,8 @@ export default function SearchPage() {
                   >
                     <option value="all">全部</option>
                     <option value="cve">CVE漏洞</option>
-                    <option value="vulnerability">非CVE漏洞</option>
+                    <option value="cnvd">CNVD漏洞</option>
+                    <option value="osv">OSV漏洞</option>
                   </select>
                 </div>
                 <div>
@@ -266,7 +272,13 @@ export default function SearchPage() {
                   {results.vulnerability_count > 0 && (
                     <>
                       <span className="mx-2">|</span>
-                      <span>非CVE: {results.vulnerability_count}</span>
+                      <span>CNVD: {results.vulnerability_count}</span>
+                    </>
+                  )}
+                  {results.osv_count > 0 && (
+                    <>
+                      <span className="mx-2">|</span>
+                      <span>OSV: {results.osv_count}</span>
                     </>
                   )}
                 </div>
@@ -328,9 +340,11 @@ export default function SearchPage() {
                           <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
                             vuln.type === 'cve' 
                               ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                              : 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
+                              : vuln.type === 'osv'
+                                ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                                : 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
                           }`}>
-                            {vuln.type === 'cve' ? 'CVE' : 'Vulnerability'}
+                            {vuln.type === 'cve' ? 'CVE' : vuln.type === 'osv' ? 'OSV' : 'Vulnerability'}
                           </span>
                           {vuln.exploits_count > 0 && (
                             <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded-full font-medium flex items-center gap-1">
