@@ -49,7 +49,7 @@ class UnifiedVulnerability:
             self.title = osv.summary
             self.description = osv.details
             self.source = "osv"
-            self.severity = osv.database_specific.get("severity") if isinstance(osv.database_specific, dict) else None
+            self.severity = None
             self.cvss_score = None
             if isinstance(osv.severity, list) and len(osv.severity) > 0:
                 for sev in osv.severity:
@@ -57,14 +57,57 @@ class UnifiedVulnerability:
                         score_str = sev["score"]
                         if score_str.startswith("CVSS:"):
                             import re
-                            match = re.search(r'/AV:(\w)/AC:(\w)/', score_str)
+                            match = re.match(r'CVSS:(\d+\.\d+)/(.*)', score_str)
                             if match:
-                                pass
+                                cvss_version = match.group(1)
+                                metrics = match.group(2).split('/')
+                                metric_map = {}
+                                for m in metrics:
+                                    parts = m.split(':')
+                                    if len(parts) == 2:
+                                        metric_map[parts[0]] = parts[1]
+                                
+                                av_map = {'N': 0.85, 'A': 0.62, 'L': 0.55, 'P': 0.20}
+                                ac_map = {'L': 0.77, 'H': 0.44}
+                                pr_map = {'N': 0.85, 'L': 0.62, 'H': 0.27}
+                                ui_map = {'N': 0.85, 'R': 0.62}
+                                cil_map = {'H': 0.56, 'L': 0.22, 'N': 0.00}
+                                
+                                av = av_map.get(metric_map.get('AV'), 0)
+                                ac = ac_map.get(metric_map.get('AC'), 0)
+                                pr = pr_map.get(metric_map.get('PR'), 0)
+                                ui = ui_map.get(metric_map.get('UI'), 0)
+                                c = cil_map.get(metric_map.get('C'), 0)
+                                i = cil_map.get(metric_map.get('I'), 0)
+                                a = cil_map.get(metric_map.get('A'), 0)
+                                s = metric_map.get('S', 'U')
+                                
+                                impact_sub_score = 1 - (1 - c) * (1 - i) * (1 - a)
+                                if s == 'C':
+                                    impact_score = min(7.52 * impact_sub_score - 3.25 * (impact_sub_score ** 15), 6.42)
+                                else:
+                                    impact_score = 6.42 * impact_sub_score
+                                exploitability_score = 8.22 * av * ac * pr * ui
+                                base_score = round((exploitability_score + impact_score) * 10) / 10
+                                self.cvss_score = base_score
+                                
+                                if base_score >= 9.0:
+                                    self.severity = 'CRITICAL'
+                                elif base_score >= 7.0:
+                                    self.severity = 'HIGH'
+                                elif base_score >= 4.0:
+                                    self.severity = 'MEDIUM'
+                                elif base_score >= 0.1:
+                                    self.severity = 'LOW'
+                                else:
+                                    self.severity = 'NONE'
+            if not self.severity and isinstance(osv.database_specific, dict):
+                self.severity = osv.database_specific.get("severity")
             self.published_date = osv.published
             self.modified_date = osv.modified
             self.cwe_ids = osv.database_specific.get("cwe_ids") if isinstance(osv.database_specific, dict) else None
             self.references_count = len(osv.references) if osv.references else 0
-            self.exploits_count = 0
+            self.exploits_count = osv.exploits_count if hasattr(osv, 'exploits_count') else 0
 
 
 @router.get("/")
@@ -146,6 +189,12 @@ def unified_search(
         if severity:
             vuln_query = vuln_query.filter(CNVDVulnerability.severity == severity.lower())
         
+        if has_exploit is not None:
+            if has_exploit:
+                vuln_query = vuln_query.filter(CNVDVulnerability.exploits_count > 0)
+            else:
+                vuln_query = vuln_query.filter(CNVDVulnerability.exploits_count == 0)
+        
         if published_after:
             vuln_query = vuln_query.filter(CNVDVulnerability.published_date >= published_after)
         
@@ -175,6 +224,12 @@ def unified_search(
                 )
             )
         
+        if has_exploit is not None:
+            if has_exploit:
+                osv_query = osv_query.filter(OSVVulnerability.exploits_count > 0)
+            else:
+                osv_query = osv_query.filter(OSVVulnerability.exploits_count == 0)
+        
         if published_after:
             osv_query = osv_query.filter(OSVVulnerability.published >= published_after)
         
@@ -187,9 +242,22 @@ def unified_search(
         else:
             osv_query = osv_query.order_by(OSVVulnerability.published.desc() if sort_desc else OSVVulnerability.published.asc())
         
-        osv_results = osv_query.offset((page - 1) * page_size // 3).limit(page_size // 3).all()
-        for osv in osv_results:
-            results.append(UnifiedVulnerability(osv=osv))
+        # 获取更多结果用于应用层筛选
+        osv_results_all = osv_query.offset((page - 1) * page_size).limit(page_size * 5).all()
+        
+        # 在应用层筛选严重性
+        osvvulns_added = 0
+        for osv in osv_results_all:
+            vuln_obj = UnifiedVulnerability(osv=osv)
+            if severity:
+                if vuln_obj.severity and vuln_obj.severity.lower() == severity.lower():
+                    results.append(vuln_obj)
+                    osvvulns_added += 1
+            else:
+                results.append(vuln_obj)
+                osvvulns_added += 1
+            if osvvulns_added >= page_size // 3:
+                break
     
     # 合并后再次排序（确保跨类型排序正确）
     if sort_by == "modified_date":
@@ -230,12 +298,17 @@ def unified_search(
         )
     if severity:
         vuln_total_query = vuln_total_query.filter(CNVDVulnerability.severity == severity.lower())
+    if has_exploit is not None:
+        if has_exploit:
+            vuln_total_query = vuln_total_query.filter(CNVDVulnerability.exploits_count > 0)
+        else:
+            vuln_total_query = vuln_total_query.filter(CNVDVulnerability.exploits_count == 0)
     if published_after:
         vuln_total_query = vuln_total_query.filter(CNVDVulnerability.published_date >= published_after)
     if published_before:
         vuln_total_query = vuln_total_query.filter(CNVDVulnerability.published_date <= published_before)
     
-    # OSV总数查询
+    # OSV总数查询（严重性筛选在应用层处理，此处不进行数据库层面筛选）
     osv_total_query = db.query(OSVVulnerability)
     if q:
         osv_total_query = osv_total_query.filter(
@@ -245,6 +318,11 @@ def unified_search(
                 OSVVulnerability.details.ilike(f"%{q}%")
             )
         )
+    if has_exploit is not None:
+        if has_exploit:
+            osv_total_query = osv_total_query.filter(OSVVulnerability.exploits_count > 0)
+        else:
+            osv_total_query = osv_total_query.filter(OSVVulnerability.exploits_count == 0)
     if published_after:
         osv_total_query = osv_total_query.filter(OSVVulnerability.published >= published_after)
     if published_before:
@@ -267,7 +345,7 @@ def unified_search(
                 "cvss_score": r.cvss_score,
                 "published_date": r.published_date,
                 "references_count": r.references_count,
-                "exploits_count": r.exploits_count
+                "exploits_count": r.exploits_count if hasattr(r, 'exploits_count') else 0
             }
             for r in results
         ],

@@ -58,6 +58,98 @@ interface Exploit {
   published_date: string | null;
 }
 
+function parseCVSSVector(vector: string): { score: number; severity: string; version: string } | null {
+  try {
+    const match = vector.match(/^CVSS:(\d+\.\d+)\/(.*)$/);
+    if (!match) return null;
+    
+    const version = match[1];
+    const metrics = match[2].split('/');
+    const metricMap: Record<string, string> = {};
+    
+    metrics.forEach(m => {
+      const [key, value] = m.split(':');
+      metricMap[key] = value;
+    });
+    
+    const versionNum = parseFloat(version);
+    let baseScore: number;
+    
+    if (versionNum >= 4.0) {
+      const avMap: Record<string, number> = { N: 0.85, A: 0.62, L: 0.55, P: 0.20 };
+      const acMap: Record<string, number> = { L: 0.77, H: 0.44 };
+      const prMap: Record<string, number> = { N: 0.85, L: 0.62, H: 0.27 };
+      const uiMap: Record<string, number> = { N: 0.85, R: 0.62 };
+      const maMap: Record<string, number> = { N: 0.85, A: 0.62, L: 0.55, P: 0.20, X: 0.85 };
+      const crMap: Record<string, number> = { H: 0.56, L: 0.22, N: 0.00, X: 0.22 };
+      const irMap: Record<string, number> = { H: 0.56, L: 0.22, N: 0.00, X: 0.22 };
+      const arMap: Record<string, number> = { H: 0.56, L: 0.22, N: 0.00, X: 0.22 };
+      
+      const av = avMap[metricMap['AV']] || 0;
+      const ac = acMap[metricMap['AC']] || 0;
+      const pr = prMap[metricMap['PR']] || 0;
+      const ui = uiMap[metricMap['UI']] || 0;
+      const ma = maMap[metricMap['MA'] || 'X'] || 0.85;
+      const cr = crMap[metricMap['CR'] || 'X'] || 0.22;
+      const ir = irMap[metricMap['IR'] || 'X'] || 0.22;
+      const ar = arMap[metricMap['AR'] || 'X'] || 0.22;
+      
+      const exploitabilityScore = 8.22 * av * ac * pr * ui;
+      const modifiedExploitabilityScore = 8.22 * ma * ac * pr * ui;
+      const impactScore = 1.0 * (1 - (1 - cr) * (1 - ir) * (1 - ar));
+      
+      const adjustedImpactScore = Math.min(7.52 * impactScore - 3.25 * Math.pow(impactScore, 15), 6.42);
+      
+      if (metricMap['S'] === 'C') {
+        baseScore = Math.round((modifiedExploitabilityScore + adjustedImpactScore) * 10) / 10;
+      } else {
+        baseScore = Math.round((exploitabilityScore + adjustedImpactScore) * 10) / 10;
+      }
+    } else {
+      const avMap: Record<string, number> = { N: 0.85, A: 0.62, L: 0.55, P: 0.20 };
+      const acMap: Record<string, number> = { L: 0.77, H: 0.44 };
+      const prMap: Record<string, number> = { N: 0.85, L: 0.62, H: 0.27 };
+      const uiMap: Record<string, number> = { N: 0.85, R: 0.62 };
+      const cilMap: Record<string, number> = { H: 0.56, L: 0.22, N: 0.00 };
+      
+      const av = avMap[metricMap['AV']] || 0;
+      const ac = acMap[metricMap['AC']] || 0;
+      const pr = prMap[metricMap['PR']] || 0;
+      const ui = uiMap[metricMap['UI']] || 0;
+      const c = cilMap[metricMap['C']] || 0;
+      const i = cilMap[metricMap['I']] || 0;
+      const a = cilMap[metricMap['A']] || 0;
+      const s = metricMap['S'] || 'U';
+      
+      let exploitabilityScore: number;
+      let impactScore: number;
+      
+      if (s === 'C') {
+        const impactSubScore = 1 - (1 - c) * (1 - i) * (1 - a);
+        impactScore = Math.min(7.52 * impactSubScore - 3.25 * Math.pow(impactSubScore, 15), 6.42);
+        exploitabilityScore = 8.22 * av * ac * pr * ui;
+      } else {
+        const impactSubScore = 1 - (1 - c) * (1 - i) * (1 - a);
+        impactScore = 6.42 * impactSubScore;
+        exploitabilityScore = 8.22 * av * ac * pr * ui;
+      }
+      
+      baseScore = Math.round((exploitabilityScore + impactScore) * 10) / 10;
+    }
+    
+    let severity: string;
+    if (baseScore >= 9.0) severity = 'CRITICAL';
+    else if (baseScore >= 7.0) severity = 'HIGH';
+    else if (baseScore >= 4.0) severity = 'MEDIUM';
+    else if (baseScore >= 0.1) severity = 'LOW';
+    else severity = 'NONE';
+    
+    return { score: baseScore, severity, version };
+  } catch {
+    return null;
+  }
+}
+
 export default function VulnerabilityDetailPage({ params }: { params: Promise<{ vuln_id: string }> }) {
   const router = useRouter();
   const resolvedParams = use(params);
@@ -147,16 +239,64 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
           }
           const osvData = await response.json();
           const dbSpecific = osvData.database_specific || {};
+          
+          let cvss_v3_score: number | null = null;
+          let cvss_v3_severity: string | null = null;
+          let cvss_v4_score: number | null = null;
+          let cvss_v4_severity: string | null = null;
+          
+          if (osvData.severity && Array.isArray(osvData.severity)) {
+            for (const sev of osvData.severity) {
+              if (sev.score && sev.score.startsWith('CVSS:')) {
+                const parsed = parseCVSSVector(sev.score);
+                if (parsed) {
+                  if (parsed.version.startsWith('3.')) {
+                    cvss_v3_score = parsed.score;
+                    cvss_v3_severity = parsed.severity;
+                  } else if (parsed.version.startsWith('4.')) {
+                    cvss_v4_score = parsed.score;
+                    cvss_v4_severity = parsed.severity;
+                  }
+                }
+              }
+            }
+          }
+          
+          const detectedSeverity = cvss_v3_severity || cvss_v4_severity || dbSpecific.severity || '';
+          
+          const affectedVersions: AffectedVersion[] = (osvData.affected || []).map((a: any) => {
+            const packageInfo = a.package || {};
+            const versions: { version: string; status: string }[] = [];
+            (a.ranges || []).forEach((range: any) => {
+              (range.events || []).forEach((event: any) => {
+                if (event.introduced) {
+                  versions.push({ version: event.introduced, status: 'affected' });
+                }
+                if (event.fixed) {
+                  versions.push({ version: event.fixed, status: 'fixed' });
+                }
+                if (event.last_affected) {
+                  versions.push({ version: event.last_affected, status: 'affected' });
+                }
+              });
+            });
+            return {
+              vendor: packageInfo.ecosystem || '',
+              product: packageInfo.name || '',
+              versions
+            };
+          }).filter((v: AffectedVersion) => v.product || v.vendor);
+          
           setData({
             vuln_id: osvData.osv_id,
             title: osvData.summary || osvData.osv_id,
             description: osvData.details || '',
             source: 'osv',
-            severity: dbSpecific.severity || '',
-            cvss_v3_score: null,
-            cvss_v3_severity: null,
-            cvss_v4_score: null,
-            cvss_v4_severity: null,
+            severity: detectedSeverity,
+            cvss_v3_score,
+            cvss_v3_severity,
+            cvss_v4_score,
+            cvss_v4_severity,
             published_date: osvData.published,
             modified_date: osvData.modified,
             cwe_ids: dbSpecific.cwe_ids || [],
@@ -164,7 +304,7 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
             references: (osvData.references || []).map((r: { url: string }) => ({ url: r.url })),
             tags: [],
             data_sources: ['osv'],
-            affected_versions: null,
+            affected_versions: affectedVersions.length > 0 ? affectedVersions : null,
             exploits_count: 0,
             vendor_name: null,
             product_name: null
@@ -237,8 +377,10 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
     });
   };
 
-  const cvssScore = data.cvss_v3_score ?? data.cvss_v4_score;
-  const cvssVersion = data.cvss_v3_score !== null ? 'v3' : 'v4';
+  const hasCVSSv3 = typeof data.cvss_v3_score === 'number';
+  const hasCVSSv4 = typeof data.cvss_v4_score === 'number';
+  const cvssScore = hasCVSSv3 ? data.cvss_v3_score : (hasCVSSv4 ? data.cvss_v4_score : null);
+  const cvssVersion = hasCVSSv3 ? 'v3' : 'v4';
 
   return (
     <div className="min-h-screen bg-background">
@@ -388,7 +530,7 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
 
-        {(data.affected_versions && data.affected_versions.length > 0) || (data.vendor_name && data.product_name) ? (
+        {(data.affected_versions && data.affected_versions.length > 0) || (data.vendor_name && data.product_name) || (isCNVD && data.tags && data.tags.length > 0) ? (
           <div className="bg-card border rounded-xl p-6 mb-6">
             <div className="flex items-center gap-2 mb-4">
               <Shield className="h-5 w-5" />
@@ -402,6 +544,21 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
                   <span className="mx-2">|</span>
                   <span className="font-medium">产品:</span>
                   <span>{data.product_name}</span>
+                </div>
+              )}
+              {isCNVD && data.tags && data.tags.length > 0 && (
+                <div>
+                  <span className="text-muted-foreground block mb-2">受影响产品:</span>
+                  <div className="flex flex-wrap gap-2">
+                    {data.tags.map((tag, index) => (
+                      <span 
+                        key={index}
+                        className="px-3 py-1 bg-muted rounded-lg text-sm"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
               {data.affected_versions && data.affected_versions.length > 0 && (

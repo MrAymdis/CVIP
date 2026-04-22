@@ -25,6 +25,7 @@ class OSVVulnerability(Base):
     references = Column(JSON)
     severity = Column(JSON)
     database_specific = Column(JSON)
+    exploits_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

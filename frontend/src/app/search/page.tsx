@@ -59,16 +59,27 @@ export default function SearchPage() {
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(() => {
+    const pageParam = searchParams.get("page");
+    return pageParam ? parseInt(pageParam, 10) : 1;
+  });
+  const [pageSize, setPageSize] = useState(() => {
+    const pageSizeParam = searchParams.get("page_size");
+    return pageSizeParam ? parseInt(pageSizeParam, 10) : 50;
+  });
   const [showFilters, setShowFilters] = useState(false);
   
   // Filters
-  const [severity, setSeverity] = useState("");
-  const [vulnType, setVulnType] = useState("all"); // all, cve, vulnerability
-  const [hasExploit, setHasExploit] = useState<string>(""); // "", "yes", "no"
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [severity, setSeverity] = useState(searchParams.get("severity") || "");
+  const [vulnType, setVulnType] = useState(searchParams.get("type") || "all"); // all, cve, vulnerability
+  const [hasExploit, setHasExploit] = useState<string>(() => {
+    const exploitParam = searchParams.get("has_exploit");
+    if (exploitParam === "true") return "yes";
+    if (exploitParam === "false") return "no";
+    return "";
+  }); // "", "yes", "no"
+  const [startDate, setStartDate] = useState(searchParams.get("published_after") || "");
+  const [endDate, setEndDate] = useState(searchParams.get("published_before") || "");
   const [sortBy, setSortBy] = useState(searchParams.get("sort_by") || "published_date");
   const [sortOrder, setSortOrder] = useState(searchParams.get("sort_order") || "desc");
 
