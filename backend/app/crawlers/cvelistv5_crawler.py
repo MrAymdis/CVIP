@@ -155,6 +155,11 @@ class CVEListV5Crawler:
             if not cve_id:
                 return None
             
+            state = cve_metadata.get("state")
+            if state == "REJECTED":
+                print(f"Skipping rejected CVE: {cve_id}")
+                return None
+            
             # Parse dates
             date_published = cve_metadata.get("datePublished")
             date_updated = cve_metadata.get("dateUpdated")
@@ -209,7 +214,14 @@ class CVEListV5Crawler:
                 # Update existing CVE
                 for key, value in cve_dict.items():
                     if key not in ["vendor_name", "product_name"] and value is not None:
-                        setattr(existing, key, value)
+                        if key == "data_sources":
+                            # Merge data sources instead of overwriting
+                            current_sources = existing.data_sources or []
+                            new_sources = value
+                            merged_sources = list(set(current_sources + new_sources))
+                            setattr(existing, key, merged_sources)
+                        else:
+                            setattr(existing, key, value)
                 return True
             
             # Get or create vendor

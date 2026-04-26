@@ -8,10 +8,15 @@ class StatsOverview(BaseModel):
     total_exploits: int
     total_vendors: int
     total_products: int
+    total_github_advisory: int
     cves_this_year: int
     exploits_this_year: int
     cisa_kev_count: int
     high_severity_count: int
+    github_advisory_critical_count: int
+    github_advisory_high_count: int
+    github_advisory_medium_count: int
+    github_advisory_low_count: int
 
 
 class TrendData(BaseModel):

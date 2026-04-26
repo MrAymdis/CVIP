@@ -173,7 +173,8 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
   }
   
   const isCVE = vuln_id.startsWith('CVE-');
-  const isCNVD = vuln_id.startsWith('CNVD-');
+    const isCNVD = vuln_id.startsWith('CNVD-');
+    const isGHSA = vuln_id.startsWith('GHSA-');
   
   useEffect(() => {
     const fetchData = async () => {
@@ -223,6 +224,60 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
             exploits_count: cveData.exploits_count || 0,
             vendor_name: cveData.vendor_name || null,
             product_name: cveData.product_name || null
+          });
+        } else if (isGHSA) {
+          const response = await fetch(`/api/v1/github-advisory/${vuln_id}`);
+          if (!response.ok) {
+            setNotFoundError(true);
+            return;
+          }
+          const ghsaData = await response.json();
+          
+          const affectedVersions: AffectedVersion[] = [];
+          const affectedPackages = Array.isArray(ghsaData.affected_packages) ? ghsaData.affected_packages : [];
+          for (const pkg of affectedPackages) {
+            const versions: { version: string; status: string }[] = [];
+            if (Array.isArray(ghsaData.patched_versions)) {
+              ghsaData.patched_versions.forEach((v: string) => {
+                versions.push({ version: v, status: 'fixed' });
+              });
+            }
+            if (Array.isArray(ghsaData.unaffected_versions)) {
+              ghsaData.unaffected_versions.forEach((v: string) => {
+                versions.push({ version: v, status: 'unaffected' });
+              });
+            }
+            affectedVersions.push({
+              vendor: pkg.ecosystem || '',
+              product: pkg.name || '',
+              versions
+            });
+          }
+          
+          const references = Array.isArray(ghsaData.references) ? ghsaData.references : [];
+          const cwe_ids = Array.isArray(ghsaData.cwe_ids) ? ghsaData.cwe_ids : [];
+          
+          setData({
+            vuln_id: ghsaData.ghsa_id,
+            title: ghsaData.summary || ghsaData.ghsa_id,
+            description: ghsaData.description || '',
+            source: 'GitHub Advisory',
+            severity: ghsaData.severity?.toUpperCase() || '',
+            cvss_v3_score: ghsaData.cvss_score || null,
+            cvss_v3_severity: ghsaData.severity?.toUpperCase() || null,
+            cvss_v4_score: null,
+            cvss_v4_severity: null,
+            published_date: ghsaData.published_at,
+            modified_date: ghsaData.updated_at,
+            cwe_ids: cwe_ids.map((cwe: string) => cwe.startsWith('CWE-') ? cwe : `CWE-${cwe}`),
+            related_cve_ids: ghsaData.cve_id ? [ghsaData.cve_id] : [],
+            references: references.map((r: { url: string }) => ({ url: r.url })),
+            tags: [],
+            data_sources: ['GitHub Advisory'],
+            affected_versions: affectedVersions.length > 0 ? affectedVersions : null,
+            exploits_count: 0,
+            vendor_name: null,
+            product_name: null
           });
         } else if (isCNVD) {
           const response = await fetch(`/api/v1/vulnerability/${vuln_id}`);
@@ -319,7 +374,7 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
     };
     
     fetchData();
-  }, [vuln_id, isCVE, isCNVD]);
+  }, [vuln_id, isCVE, isCNVD, isGHSA]);
   
   const goBack = () => {
     router.back();
@@ -401,11 +456,13 @@ export default function VulnerabilityDetailPage({ params }: { params: Promise<{ 
             <span className={`px-3 py-1 rounded-full text-sm ${
               isCVE 
                 ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
-                : isCNVD
-                  ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
-                  : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                : isGHSA
+                  ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300'
+                  : isCNVD
+                    ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                    : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
             }`}>
-              {isCVE ? 'CVE' : isCNVD ? 'CNVD' : 'OSV'}
+              {isCVE ? 'CVE' : isGHSA ? 'GHSA' : isCNVD ? 'CNVD' : 'OSV'}
             </span>
             {data.exploits_count && data.exploits_count > 0 && (
               <span className="px-3 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-full text-sm font-medium flex items-center gap-1">

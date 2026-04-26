@@ -9,6 +9,11 @@ interface StatsOverview {
   total_exploits: number;
   total_vendors: number;
   total_products: number;
+  total_github_advisory: number;
+  github_advisory_critical_count: number;
+  github_advisory_high_count: number;
+  github_advisory_medium_count: number;
+  github_advisory_low_count: number;
   cves_this_year: number;
   exploits_this_year: number;
   cisa_kev_count: number;
@@ -102,7 +107,7 @@ export default function StatsPage() {
 
         {/* Overview Cards */}
         {overview && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
             <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border">
               <Database className="h-8 w-8 text-primary mb-2" />
               <div className="text-2xl font-bold">{overview.total_cves.toLocaleString()}</div>
@@ -122,6 +127,40 @@ export default function StatsPage() {
               <TrendingUp className="h-8 w-8 text-orange-500 mb-2" />
               <div className="text-2xl font-bold">{overview.high_severity_count.toLocaleString()}</div>
               <div className="text-sm text-muted-foreground">高危漏洞</div>
+            </div>
+            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border">
+              <Shield className="h-8 w-8 text-blue-500 mb-2" />
+              <div className="text-2xl font-bold">{overview.total_github_advisory.toLocaleString()}</div>
+              <div className="text-sm text-muted-foreground">GitHub Advisory</div>
+            </div>
+          </div>
+        )}
+
+        {overview && overview.total_github_advisory > 0 && (
+          <div className="grid md:grid-cols-4 gap-4 mb-8">
+            <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-xl border border-red-200 dark:border-red-800">
+              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                {overview.github_advisory_critical_count.toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground">Critical</div>
+            </div>
+            <div className="p-4 bg-orange-50 dark:bg-orange-900/30 rounded-xl border border-orange-200 dark:border-orange-800">
+              <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                {overview.github_advisory_high_count.toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground">High</div>
+            </div>
+            <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-xl border border-yellow-200 dark:border-yellow-800">
+              <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                {overview.github_advisory_medium_count.toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground">Medium</div>
+            </div>
+            <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl border border-green-200 dark:border-green-800">
+              <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                {overview.github_advisory_low_count.toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground">Low</div>
             </div>
           </div>
         )}

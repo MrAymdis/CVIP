@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, timedelta
 from app.database import get_db
-from app.models import CVE, Exploit, Vendor, CWE
+from app.models import CVE, Exploit, Vendor, CWE, GitHubAdvisory
 from app.schemas import StatsResponse, StatsOverview, TrendData, VendorRank, CWERank
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
@@ -19,6 +19,21 @@ def get_overview(db: Session = Depends(get_db)):
     # Products count (unique product names)
     from app.models import Product
     total_products = db.query(Product).count()
+    
+    # GitHub Advisory statistics
+    total_github_advisory = db.query(GitHubAdvisory).count()
+    gh_critical_count = db.query(GitHubAdvisory).filter(
+        GitHubAdvisory.severity == "critical"
+    ).count()
+    gh_high_count = db.query(GitHubAdvisory).filter(
+        GitHubAdvisory.severity == "high"
+    ).count()
+    gh_medium_count = db.query(GitHubAdvisory).filter(
+        GitHubAdvisory.severity == "medium"
+    ).count()
+    gh_low_count = db.query(GitHubAdvisory).filter(
+        GitHubAdvisory.severity == "low"
+    ).count()
     
     # This year
     current_year = datetime.now().year
@@ -43,10 +58,15 @@ def get_overview(db: Session = Depends(get_db)):
         total_exploits=total_exploits,
         total_vendors=total_vendors,
         total_products=total_products,
+        total_github_advisory=total_github_advisory,
         cves_this_year=cves_this_year,
         exploits_this_year=exploits_this_year,
         cisa_kev_count=cisa_kev_count,
-        high_severity_count=high_severity_count
+        high_severity_count=high_severity_count,
+        github_advisory_critical_count=gh_critical_count,
+        github_advisory_high_count=gh_high_count,
+        github_advisory_medium_count=gh_medium_count,
+        github_advisory_low_count=gh_low_count
     )
 
 

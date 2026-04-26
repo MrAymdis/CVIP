@@ -26,6 +26,7 @@ interface SearchResponse {
   cve_count: number;
   vulnerability_count: number;
   osv_count: number;
+  github_advisory_count: number;
 }
 
 const severityColors: Record<string, string> = {
@@ -203,6 +204,7 @@ export default function SearchPage() {
                     <option value="cve">CVE漏洞</option>
                     <option value="cnvd">CNVD漏洞</option>
                     <option value="osv">OSV漏洞</option>
+                    <option value="github_advisory">GitHub Advisory</option>
                   </select>
                 </div>
                 <div>
@@ -274,24 +276,6 @@ export default function SearchPage() {
               <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                 <div className="text-sm text-muted-foreground">
                   找到 {results.total} 条结果
-                  {results.cve_count > 0 && (
-                    <span className="mx-2">|</span>
-                  )}
-                  {results.cve_count > 0 && (
-                    <span>CVE: {results.cve_count}</span>
-                  )}
-                  {results.vulnerability_count > 0 && (
-                    <>
-                      <span className="mx-2">|</span>
-                      <span>CNVD: {results.vulnerability_count}</span>
-                    </>
-                  )}
-                  {results.osv_count > 0 && (
-                    <>
-                      <span className="mx-2">|</span>
-                      <span>OSV: {results.osv_count}</span>
-                    </>
-                  )}
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
@@ -353,9 +337,11 @@ export default function SearchPage() {
                               ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
                               : vuln.type === 'osv'
                                 ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
-                                : 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
+                                : vuln.type === 'github_advisory'
+                                  ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300'
+                                  : 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
                           }`}>
-                            {vuln.type === 'cve' ? 'CVE' : vuln.type === 'osv' ? 'OSV' : 'Vulnerability'}
+                            {vuln.type === 'cve' ? 'CVE' : vuln.type === 'osv' ? 'OSV' : vuln.type === 'github_advisory' ? 'GHSA' : 'Vulnerability'}
                           </span>
                           {vuln.exploits_count > 0 && (
                             <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded-full font-medium flex items-center gap-1">
