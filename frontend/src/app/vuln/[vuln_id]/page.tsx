@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { ExternalLink, Clock, AlertTriangle, Tag, Link2, Shield, FileCode, ArrowLeft } from 'lucide-react';
 
 interface AffectedVersion {
@@ -150,10 +150,10 @@ function parseCVSSVector(vector: string): { score: number; severity: string; ver
   }
 }
 
-export default function VulnerabilityDetailPage({ params }: { params: Promise<{ vuln_id: string }> }) {
+export default function VulnerabilityDetailPage() {
   const router = useRouter();
-  const resolvedParams = use(params);
-  const vuln_id = resolvedParams?.vuln_id;
+  const params = useParams<{ vuln_id: string }>();
+  const vuln_id = params?.vuln_id;
   
   const [data, setData] = useState<VulnerabilityDetail | null>(null);
   const [references, setReferences] = useState<CVEReference[]>([]);

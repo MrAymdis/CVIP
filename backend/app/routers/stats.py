@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, timedelta
 from app.database import get_db
-from app.models import CVE, Exploit, Vendor, CWE, GitHubAdvisory
+from app.models import CVE, Exploit, Vendor, CWE, GitHubAdvisory, CNVDVulnerability, OSVVulnerability
 from app.schemas import StatsResponse, StatsOverview, TrendData, VendorRank, CWERank
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
@@ -13,15 +13,17 @@ router = APIRouter(prefix="/stats", tags=["Stats"])
 def get_overview(db: Session = Depends(get_db)):
     """Get platform statistics overview."""
     total_cves = db.query(CVE).count()
+    total_cnvd = db.query(CNVDVulnerability).count()
+    total_osv = db.query(OSVVulnerability).count()
+    total_github_advisory = db.query(GitHubAdvisory).count()
+    total_vulnerabilities = total_cves + total_cnvd + total_osv + total_github_advisory
+
     total_exploits = db.query(Exploit).count()
     total_vendors = db.query(Vendor).count()
-    
-    # Products count (unique product names)
+
     from app.models import Product
     total_products = db.query(Product).count()
-    
-    # GitHub Advisory statistics
-    total_github_advisory = db.query(GitHubAdvisory).count()
+
     gh_critical_count = db.query(GitHubAdvisory).filter(
         GitHubAdvisory.severity == "critical"
     ).count()
@@ -34,27 +36,33 @@ def get_overview(db: Session = Depends(get_db)):
     gh_low_count = db.query(GitHubAdvisory).filter(
         GitHubAdvisory.severity == "low"
     ).count()
-    
-    # This year
+
+    cnvd_critical_count = db.query(CNVDVulnerability).filter(
+        CNVDVulnerability.severity == "critical"
+    ).count()
+    cnvd_high_count = db.query(CNVDVulnerability).filter(
+        CNVDVulnerability.severity == "high"
+    ).count()
+
     current_year = datetime.now().year
     cves_this_year = db.query(CVE).filter(
         extract('year', CVE.published_date) == current_year
     ).count()
-    
+
     exploits_this_year = db.query(Exploit).filter(
         extract('year', Exploit.published_date) == current_year
     ).count()
-    
-    # CISA KEV count
+
     cisa_kev_count = db.query(CVE).filter(CVE.cisa_kev == True).count()
-    
-    # High severity count (CVSS >= 7.0)
-    high_severity_count = db.query(CVE).filter(
+
+    cve_high_count = db.query(CVE).filter(
         (CVE.cvss_v3_score >= 7.0) | (CVE.cvss_v4_score >= 7.0)
     ).count()
-    
+
+    critical_count = gh_critical_count + cnvd_critical_count + cve_high_count
+
     return StatsOverview(
-        total_cves=total_cves,
+        total_cves=total_vulnerabilities,
         total_exploits=total_exploits,
         total_vendors=total_vendors,
         total_products=total_products,
@@ -62,7 +70,7 @@ def get_overview(db: Session = Depends(get_db)):
         cves_this_year=cves_this_year,
         exploits_this_year=exploits_this_year,
         cisa_kev_count=cisa_kev_count,
-        high_severity_count=high_severity_count,
+        high_severity_count=critical_count,
         github_advisory_critical_count=gh_critical_count,
         github_advisory_high_count=gh_high_count,
         github_advisory_medium_count=gh_medium_count,

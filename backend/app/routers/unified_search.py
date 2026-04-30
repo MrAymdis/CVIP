@@ -125,6 +125,9 @@ def unified_search(
     osv_total = 0
     gh_total = 0
     
+    # 获取足够多的数据用于合并排序，避免分页导致最新数据被遗漏
+    fetch_limit = page_size * 5
+    
     # 搜索CVE漏洞
     if type is None or type == "all" or type == "cve":
         cve_query = db.query(CVE)
@@ -162,7 +165,7 @@ def unified_search(
         else:
             cve_query = cve_query.order_by(CVE.published_date.desc() if sort_desc else CVE.published_date.asc())
         
-        cve_results = cve_query.offset((page - 1) * page_size // 2).limit(page_size // 2).all()
+        cve_results = cve_query.limit(fetch_limit).all()
         for cve in cve_results:
             results.append(UnifiedVulnerability(cve=cve))
     
@@ -206,7 +209,7 @@ def unified_search(
         else:
             vuln_query = vuln_query.order_by(CNVDVulnerability.published_date.desc() if sort_desc else CNVDVulnerability.published_date.asc())
         
-        vuln_results = vuln_query.offset((page - 1) * page_size // 3).limit(page_size // 3).all()
+        vuln_results = vuln_query.limit(fetch_limit).all()
         for vuln in vuln_results:
             results.append(UnifiedVulnerability(vuln=vuln))
     
@@ -239,7 +242,7 @@ def unified_search(
         else:
             osv_query = osv_query.order_by(OSVVulnerability.published.desc() if sort_desc else OSVVulnerability.published.asc())
         
-        osv_results = osv_query.offset((page - 1) * page_size // 4).limit(page_size // 4).all()
+        osv_results = osv_query.limit(fetch_limit).all()
         for osv in osv_results:
             results.append(UnifiedVulnerability(osv=osv))
     
@@ -274,30 +277,36 @@ def unified_search(
         else:
             gh_query = gh_query.order_by(GitHubAdvisory.published_at.desc() if sort_desc else GitHubAdvisory.published_at.asc())
         
-        gh_results = gh_query.offset((page - 1) * page_size // 4).limit(page_size // 4).all()
+        gh_results = gh_query.limit(fetch_limit).all()
         for gh in gh_results:
             results.append(UnifiedVulnerability(github_advisory=gh))
     
-    # 合并后排序
+    # 合并后排序（这是关键：在所有数据中排序）
     if sort_by == "modified_date":
         results.sort(key=lambda x: x.modified_date if x.modified_date else datetime.min, reverse=sort_desc)
     else:
         results.sort(key=lambda x: x.published_date if x.published_date else datetime.min, reverse=sort_desc)
     
-    # 获取总数（使用估算方式，不进行全文搜索计数）
-    if type is None or type == "all" or type == "cve":
-        cve_total = estimate_count(db, 'cves')
+    # 最后进行分页
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    paginated_results = results[start_idx:end_idx]
     
-    if type is None or type == "all" or type == "cnvd":
-        vuln_total = estimate_count(db, 'cnvd_vulnerabilities')
-    
-    if type is None or type == "all" or type == "osv":
-        osv_total = estimate_count(db, 'osv_vulnerabilities')
-    
-    if type is None or type == "all" or type == "github_advisory":
-        gh_total = estimate_count(db, 'github_advisories')
-    
-    total = cve_total + vuln_total + osv_total + gh_total
+    # 获取总数
+    if type is None or type == "all":
+        # 无筛选条件时使用精确计数
+        cve_total = db.query(CVE).count()
+        vuln_total = db.query(CNVDVulnerability).count()
+        osv_total = db.query(OSVVulnerability).count()
+        gh_total = db.query(GitHubAdvisory).count()
+        total = cve_total + vuln_total + osv_total + gh_total
+    else:
+        # 有筛选条件时使用各类型的实际计数
+        cve_total = db.query(CVE).count() if type == "cve" else 0
+        vuln_total = db.query(CNVDVulnerability).count() if type == "cnvd" else 0
+        osv_total = db.query(OSVVulnerability).count() if type == "osv" else 0
+        gh_total = db.query(GitHubAdvisory).count() if type == "github_advisory" else 0
+        total = cve_total + vuln_total + osv_total + gh_total
     
     return {
         "data": [
@@ -313,7 +322,7 @@ def unified_search(
                 "references_count": r.references_count,
                 "exploits_count": r.exploits_count if hasattr(r, 'exploits_count') else 0
             }
-            for r in results
+            for r in paginated_results
         ],
         "total": total,
         "page": page,
