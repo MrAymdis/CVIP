@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.models.vulnerability import CNVDVulnerability, CNVDVulnerabilityReference
+from app.models.cnvd import CNVDVulnerability, CNVDVulnerabilityReference
 from app.database import Base
 
 def parse_severity(severity_str):
@@ -85,6 +85,8 @@ def import_cnvd_xml(xml_file_path, db_url):
                     if product_name:
                         products.append(product_name)
             
+            solution = vulnerability_elem.findtext('formalWay', '').strip()
+            
             new_vuln = CNVDVulnerability(
                 vuln_id=vuln_id,
                 title=title,
@@ -96,6 +98,8 @@ def import_cnvd_xml(xml_file_path, db_url):
                 related_cve_ids=cve_ids if cve_ids else None,
                 references=references if references else None,
                 tags=products if products else None,
+                affected_products=products if products else None,
+                solution=solution if solution else None,
                 data_sources=['CNVD']
             )
             

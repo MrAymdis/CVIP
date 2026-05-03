@@ -4,26 +4,6 @@ import { Search, Shield, Database, TrendingUp, FileCode, AlertTriangle } from "l
 export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm dark:bg-slate-950/80">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="h-8 w-8 text-primary" />
-            <span className="text-xl font-bold">漏洞情报平台</span>
-          </div>
-          <nav className="flex items-center gap-6">
-            <Link href="/search" className="text-sm font-medium hover:text-primary">
-              搜索
-            </Link>
-            <Link href="/stats" className="text-sm font-medium hover:text-primary">
-              统计
-            </Link>
-            <Link href="/about" className="text-sm font-medium hover:text-primary">
-              关于
-            </Link>
-          </nav>
-        </div>
-      </header>
 
       {/* Hero Section */}
       <section className="container mx-auto px-4 py-20 text-center">

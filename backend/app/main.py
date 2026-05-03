@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import SQLAlchemyError
+import logging
 from app.config import settings
-from app.routers import cve, stats, vulnerability, unified_search, osv, github_advisory
+from app.routers import cve, stats, vulnerability, unified_search, osv, github_advisory, cwe, components
 from app.database import engine, Base
 
-# Create database tables
+logger = logging.getLogger(__name__)
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -15,7 +20,6 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,13 +28,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(cve.router, prefix=settings.API_V1_PREFIX, tags=["CVE"])
 app.include_router(vulnerability.router, prefix=settings.API_V1_PREFIX + "/vulnerability", tags=["Vulnerability"])
 app.include_router(unified_search.router, prefix=settings.API_V1_PREFIX + "/search", tags=["Unified Search"])
 app.include_router(osv.router, prefix=settings.API_V1_PREFIX + "/osv", tags=["OSV"])
 app.include_router(github_advisory.router, prefix=settings.API_V1_PREFIX + "/github-advisory", tags=["GitHub Advisory"])
 app.include_router(stats.router, prefix=settings.API_V1_PREFIX, tags=["Stats"])
+app.include_router(cwe.router, prefix=settings.API_V1_PREFIX + "/cwe", tags=["CWE"])
+app.include_router(components.router, prefix=settings.API_V1_PREFIX, tags=["Components"])
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request, exc):
+    logger.error(f"Database error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Database error occurred", "error": str(exc)}
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Validation error", "error": str(exc)}
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    logger.error(f"Unhandled exception: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "error": str(exc)}
+    )
 
 
 @app.get("/")

@@ -58,6 +58,17 @@ interface Exploit {
   published_date: string | null;
 }
 
+interface Component {
+  id: number;
+  name: string;
+  component_id: string;
+  vendor_name: string | null;
+  category: string;
+  product_version: string | null;
+  ecosystem: string | null;
+  vuln_count: number;
+}
+
 function parseCVSSVector(vector: string): { score: number; severity: string; version: string } | null {
   try {
     const match = vector.match(/^CVSS:(\d+\.\d+)\/(.*)$/);
@@ -158,6 +169,7 @@ export default function VulnerabilityDetailPage() {
   const [data, setData] = useState<VulnerabilityDetail | null>(null);
   const [references, setReferences] = useState<CVEReference[]>([]);
   const [exploits, setExploits] = useState<Exploit[]>([]);
+  const [components, setComponents] = useState<Component[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFoundError, setNotFoundError] = useState(false);
   
@@ -181,14 +193,20 @@ export default function VulnerabilityDetailPage() {
       setLoading(true);
       setNotFoundError(false);
       try {
+        const response = await fetch(`/api/v1/search/${vuln_id}`);
+        if (!response.ok) {
+          setNotFoundError(true);
+          return;
+        }
+        const unifiedData = await response.json();
+        
+        if (unifiedData.error) {
+          setNotFoundError(true);
+          return;
+        }
+        
+        // 对于 CVE 类型，还要获取 references 和 exploits
         if (isCVE) {
-          const response = await fetch(`/api/v1/cve/${vuln_id}`);
-          if (!response.ok) {
-            setNotFoundError(true);
-            return;
-          }
-          const cveData = await response.json();
-          
           const refResponse = await fetch(`/api/v1/cve/${vuln_id}/references`);
           let refs: CVEReference[] = [];
           if (refResponse.ok) {
@@ -202,126 +220,47 @@ export default function VulnerabilityDetailPage() {
             exps = await exploitResponse.json();
           }
           setExploits(exps);
-          
-          setData({
-            vuln_id: cveData.cve_id,
-            title: cveData.title,
-            description: cveData.description,
-            source: 'cvelistv5',
-            severity: cveData.cvss_v3_severity || cveData.cvss_v4_severity || '',
-            cvss_v3_score: cveData.cvss_v3_score,
-            cvss_v3_severity: cveData.cvss_v3_severity,
-            cvss_v4_score: cveData.cvss_v4_score,
-            cvss_v4_severity: cveData.cvss_v4_severity,
-            published_date: cveData.published_date,
-            modified_date: cveData.modified_date,
-            cwe_ids: cveData.cwes || [],
-            related_cve_ids: [],
-            references: refs.map(r => ({ url: r.url })),
-            tags: [],
-            data_sources: ['cvelistv5'],
-            affected_versions: cveData.affected_versions || [],
-            exploits_count: cveData.exploits_count || 0,
-            vendor_name: cveData.vendor_name || null,
-            product_name: cveData.product_name || null
-          });
-        } else if (isGHSA) {
-          const response = await fetch(`/api/v1/github-advisory/${vuln_id}`);
-          if (!response.ok) {
-            setNotFoundError(true);
-            return;
-          }
-          const ghsaData = await response.json();
-          
-          const affectedVersions: AffectedVersion[] = [];
-          const affectedPackages = Array.isArray(ghsaData.affected_packages) ? ghsaData.affected_packages : [];
-          for (const pkg of affectedPackages) {
+        }
+        
+        // 获取关联的组件信息
+        const componentResponse = await fetch(`/api/v1/components/list?keyword=${encodeURIComponent(unifiedData.title || unifiedData.id)}`);
+        if (componentResponse.ok) {
+          const componentData = await componentResponse.json();
+          setComponents(componentData.data || []);
+        }
+        
+        // 转换受影响版本格式 - 支持 CVE, CNVD, OSV, GHSA 四种格式
+        let affectedVersions: AffectedVersion[] | null = null;
+        if (unifiedData.affected && Array.isArray(unifiedData.affected)) {
+          affectedVersions = (unifiedData.affected || []).map((a: any) => {
             const versions: { version: string; status: string }[] = [];
-            if (Array.isArray(ghsaData.patched_versions)) {
-              ghsaData.patched_versions.forEach((v: string) => {
-                versions.push({ version: v, status: 'fixed' });
+            
+            // CVE 格式: {vendor, product, versions: [{version, status}]}
+            if (a.vendor && a.product) {
+              (a.versions || []).forEach((v: any) => {
+                versions.push({
+                  version: v.version || 'n/a',
+                  status: v.status || 'affected'
+                });
               });
+              return {
+                vendor: a.vendor,
+                product: a.product,
+                versions
+              };
             }
-            if (Array.isArray(ghsaData.unaffected_versions)) {
-              ghsaData.unaffected_versions.forEach((v: string) => {
-                versions.push({ version: v, status: 'unaffected' });
-              });
+            
+            // CNVD 格式: 字符串数组 ['product1', 'product2']
+            if (typeof a === 'string') {
+              return {
+                vendor: '未知厂商',
+                product: a,
+                versions: [{ version: '未知版本', status: 'affected' }]
+              };
             }
-            affectedVersions.push({
-              vendor: pkg.ecosystem || '',
-              product: pkg.name || '',
-              versions
-            });
-          }
-          
-          const references = Array.isArray(ghsaData.references) ? ghsaData.references : [];
-          const cwe_ids = Array.isArray(ghsaData.cwe_ids) ? ghsaData.cwe_ids : [];
-          
-          setData({
-            vuln_id: ghsaData.ghsa_id,
-            title: ghsaData.summary || ghsaData.ghsa_id,
-            description: ghsaData.description || '',
-            source: 'GitHub Advisory',
-            severity: ghsaData.severity?.toUpperCase() || '',
-            cvss_v3_score: ghsaData.cvss_score || null,
-            cvss_v3_severity: ghsaData.severity?.toUpperCase() || null,
-            cvss_v4_score: null,
-            cvss_v4_severity: null,
-            published_date: ghsaData.published_at,
-            modified_date: ghsaData.updated_at,
-            cwe_ids: cwe_ids.map((cwe: string) => cwe.startsWith('CWE-') ? cwe : `CWE-${cwe}`),
-            related_cve_ids: ghsaData.cve_id ? [ghsaData.cve_id] : [],
-            references: references.map((r: { url: string }) => ({ url: r.url })),
-            tags: [],
-            data_sources: ['GitHub Advisory'],
-            affected_versions: affectedVersions.length > 0 ? affectedVersions : null,
-            exploits_count: 0,
-            vendor_name: null,
-            product_name: null
-          });
-        } else if (isCNVD) {
-          const response = await fetch(`/api/v1/vulnerability/${vuln_id}`);
-          if (!response.ok) {
-            setNotFoundError(true);
-            return;
-          }
-          setData(await response.json());
-        } else {
-          const response = await fetch(`/api/v1/osv/${vuln_id}`);
-          if (!response.ok) {
-            setNotFoundError(true);
-            return;
-          }
-          const osvData = await response.json();
-          const dbSpecific = osvData.database_specific || {};
-          
-          let cvss_v3_score: number | null = null;
-          let cvss_v3_severity: string | null = null;
-          let cvss_v4_score: number | null = null;
-          let cvss_v4_severity: string | null = null;
-          
-          if (osvData.severity && Array.isArray(osvData.severity)) {
-            for (const sev of osvData.severity) {
-              if (sev.score && sev.score.startsWith('CVSS:')) {
-                const parsed = parseCVSSVector(sev.score);
-                if (parsed) {
-                  if (parsed.version.startsWith('3.')) {
-                    cvss_v3_score = parsed.score;
-                    cvss_v3_severity = parsed.severity;
-                  } else if (parsed.version.startsWith('4.')) {
-                    cvss_v4_score = parsed.score;
-                    cvss_v4_severity = parsed.severity;
-                  }
-                }
-              }
-            }
-          }
-          
-          const detectedSeverity = cvss_v3_severity || cvss_v4_severity || dbSpecific.severity || '';
-          
-          const affectedVersions: AffectedVersion[] = (osvData.affected || []).map((a: any) => {
+            
+            // OSV/GHSA 格式: {package: {name, ecosystem}, ranges: [{type, events: [{introduced, fixed}]}]}
             const packageInfo = a.package || {};
-            const versions: { version: string; status: string }[] = [];
             (a.ranges || []).forEach((range: any) => {
               (range.events || []).forEach((event: any) => {
                 if (event.introduced) {
@@ -335,36 +274,46 @@ export default function VulnerabilityDetailPage() {
                 }
               });
             });
+            
+            // 从 database_specific 或 ecosystem 获取厂商信息
+            const vendor = packageInfo.ecosystem || a.database_specific?.ecosystem || '未知厂商';
+            const product = packageInfo.name || a.database_specific?.name || '未知产品';
+            
             return {
-              vendor: packageInfo.ecosystem || '',
-              product: packageInfo.name || '',
+              vendor,
+              product,
               versions
             };
           }).filter((v: AffectedVersion) => v.product || v.vendor);
           
-          setData({
-            vuln_id: osvData.osv_id,
-            title: osvData.summary || osvData.osv_id,
-            description: osvData.details || '',
-            source: 'osv',
-            severity: detectedSeverity,
-            cvss_v3_score,
-            cvss_v3_severity,
-            cvss_v4_score,
-            cvss_v4_severity,
-            published_date: osvData.published,
-            modified_date: osvData.modified,
-            cwe_ids: dbSpecific.cwe_ids || [],
-            related_cve_ids: osvData.related || [],
-            references: (osvData.references || []).map((r: { url: string }) => ({ url: r.url })),
-            tags: [],
-            data_sources: ['osv'],
-            affected_versions: affectedVersions.length > 0 ? affectedVersions : null,
-            exploits_count: 0,
-            vendor_name: null,
-            product_name: null
-          });
+          if (affectedVersions.length === 0) {
+            affectedVersions = null;
+          }
         }
+        
+        setData({
+          vuln_id: unifiedData.id,
+          title: unifiedData.title || unifiedData.id,
+          description: unifiedData.description || '',
+          source: unifiedData.source || 'Unknown',
+          severity: unifiedData.severity || '',
+          cvss_v3_score: unifiedData.cvss_v3_score,
+          cvss_v3_severity: unifiedData.cvss_v3_severity || unifiedData.severity,
+          cvss_v4_score: unifiedData.cvss_v4_score,
+          cvss_v4_severity: unifiedData.cvss_v4_severity,
+          published_date: unifiedData.published_date,
+          modified_date: unifiedData.modified_date,
+          cwe_ids: unifiedData.cwes || [],
+          related_cve_ids: unifiedData.related_cve_ids || [],
+          references: (unifiedData.references || []).map((r: any) => ({ url: r.url })),
+          tags: unifiedData.tags || [],
+          data_sources: unifiedData.data_sources || [],
+          affected_versions: affectedVersions,
+          exploits_count: unifiedData.exploits_count || 0,
+          vendor_name: null,
+          product_name: null
+        });
+        
       } catch (error) {
         console.error('Error fetching data:', error);
         setNotFoundError(true);
@@ -374,6 +323,15 @@ export default function VulnerabilityDetailPage() {
     };
     
     fetchData();
+  }, [vuln_id, isCVE, isCNVD, isGHSA]);
+
+  useEffect(() => {
+    if (!vuln_id) return;
+    
+    const typeParam = isCVE ? 'cve' : isCNVD ? 'cnvd' : isGHSA ? 'github_advisory' : 'osv';
+    
+    fetch(`/api/v1/search/${vuln_id}/view?type=${typeParam}`, { method: 'POST' })
+      .catch(err => console.error('Failed to increment view count:', err));
   }, [vuln_id, isCVE, isCNVD, isGHSA]);
   
   const goBack = () => {
@@ -665,6 +623,51 @@ export default function VulnerabilityDetailPage() {
                 >
                   {cve_id}
                 </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {components.length > 0 && (
+          <div className="bg-card border rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">相关组件</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {components.map((component) => (
+                <div
+                  key={component.id}
+                  className="bg-muted rounded-lg p-4 hover:bg-accent transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="font-medium">{component.name}</h3>
+                      {component.vendor_name && (
+                        <div className="text-sm text-muted-foreground mt-1">
+                          厂商: {component.vendor_name}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <span className="px-2 py-0.5 bg-background rounded text-xs">
+                          {component.category}
+                        </span>
+                        {component.ecosystem && (
+                          <span className="px-2 py-0.5 bg-background rounded text-xs">
+                            {component.ecosystem}
+                          </span>
+                        )}
+                        {component.product_version && (
+                          <span className="px-2 py-0.5 bg-background rounded text-xs">
+                            版本: {component.product_version}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {component.vuln_count > 0 && (
+                      <span className="shrink-0 px-2 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded text-xs font-medium">
+                        {component.vuln_count} 漏洞
+                      </span>
+                    )}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

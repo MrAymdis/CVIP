@@ -9,8 +9,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
-        destination: 'http://cve-backend:8000/api/:path*',
+        source: '/api/v1/:path*',
+        destination: 'http://host.docker.internal:8006/api/v1/:path*',
       },
     ];
   },

@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Search, Filter, ChevronDown, Shield, AlertTriangle, Bug, FileCode, Flame, Clock, Building, ChevronRight, Star } from "lucide-react";
+import { Search, Filter, ChevronDown, Shield, AlertTriangle, Bug, FileCode, Flame, Clock, Building, ChevronRight } from "lucide-react";
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
 interface Vulnerability {
   type: string;
@@ -30,25 +39,28 @@ interface SearchResponse {
 }
 
 interface StatsResponse {
-  total_cves: number;
+  total_vulns: number;
   total_exploits: number;
-  high_severity_count: number;
-  cisa_kev_count: number;
+  total_vendors: number;
+  total_products: number;
+  total_github_advisory: number;
   cves_this_year: number;
-  github_advisory_critical_count: number;
-  github_advisory_high_count: number;
-  github_advisory_medium_count: number;
-  github_advisory_low_count: number;
+  exploits_this_year: number;
+  cisa_kev_count: number;
+  high_severity_count: number;
+  published_today: number;
+  updated_today: number;
 }
 
 interface HotVulnerability {
   id: string;
+  type: string;
   title: string;
   severity: string;
   published_date: string;
   source: string;
-  vendor: string;
-  product: string;
+  view_count: number;
+  exploits_count: number;
 }
 
 const severityColors: Record<string, string> = {
@@ -88,14 +100,38 @@ const severityBadgeColors: Record<string, string> = {
   low: "bg-blue-100 text-blue-700",
 };
 
+// 缓存数据类型
+interface CacheData {
+  results: SearchResponse | null;
+  stats: StatsResponse;
+  hotVulns: HotVulnerability[];
+  timestamp: number;
+}
+
+// 缓存有效期（5分钟）
+const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_KEY = 'search_page_cache';
+
 export default function SearchPage() {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [results, setResults] = useState<SearchResponse | null>(null);
-  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [stats, setStats] = useState<StatsResponse>({
+    total_vulns: 0,
+    total_exploits: 0,
+    total_vendors: 0,
+    total_products: 0,
+    total_github_advisory: 0,
+    cves_this_year: 0,
+    exploits_this_year: 0,
+    cisa_kev_count: 0,
+    high_severity_count: 0,
+    published_today: 0,
+    updated_today: 0,
+  });
   const [hotVulns, setHotVulns] = useState<HotVulnerability[]>([]);
   const [loading, setLoading] = useState(false);
-  const [statsLoading, setStatsLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [page, setPage] = useState(() => {
     const pageParam = searchParams.get("page");
     return pageParam ? parseInt(pageParam, 10) : 1;
@@ -119,6 +155,49 @@ export default function SearchPage() {
   const [sortBy] = useState("published_date");
   const [sortOrder] = useState("desc");
 
+  const apiUrl = '/api';
+
+  // 从缓存读取数据
+  const loadFromCache = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const data: CacheData = JSON.parse(cached);
+        if (Date.now() - data.timestamp < CACHE_TTL) {
+          setResults(data.results);
+          setStats(data.stats);
+          setHotVulns(data.hotVulns);
+          console.log("Loaded from cache");
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load from cache:", e);
+    }
+    return false;
+  };
+
+  // 保存到缓存
+  const saveToCache = (
+    resultsData: SearchResponse | null,
+    statsData: StatsResponse,
+    hotVulnsData: HotVulnerability[]
+  ) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const data: CacheData = {
+        results: resultsData,
+        stats: statsData,
+        hotVulns: hotVulnsData,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.error("Failed to save to cache:", e);
+    }
+  };
+
   const doFetch = async (currentQuery: string, currentPage: number) => {
     setLoading(true);
     try {
@@ -141,6 +220,7 @@ export default function SearchPage() {
       }
       const data = await response.json();
       setResults(data);
+      saveToCache(data, stats, hotVulns);
     } catch (error) {
       console.error("Search error:", error);
       setResults(null);
@@ -149,29 +229,81 @@ export default function SearchPage() {
     }
   };
 
-  const fetchStats = async () => {
-    setStatsLoading(true);
+  const fetchAllData = async () => {
+    setLoading(true);
     try {
-      const response = await fetch(`/api/v1/stats/overview`);
-      const data = await response.json();
-      setStats(data);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
 
-      const hotResponse = await fetch(`/api/v1/search?sort_by=published_date&sort_order=desc&page_size=4`);
-      const hotData = await hotResponse.json();
-      const hotItems: HotVulnerability[] = hotData.data.slice(0, 4).map((v: Vulnerability) => ({
-        id: v.id,
-        title: v.title || "",
-        severity: v.severity || "",
-        published_date: v.published_date || "",
-        source: v.source,
-        vendor: "",
-        product: "",
-      }));
-      setHotVulns(hotItems);
+      const [statsResponse, hotResponse, searchResponse] = await Promise.all([
+        fetch(`/api/v1/stats/overview`, { signal: controller.signal }),
+        fetch(`/api/v1/search/top-viewed?limit=10`, { signal: controller.signal }),
+        fetch(`/api/v1/search?page=1&page_size=10`, { signal: controller.signal })
+      ]);
+
+      clearTimeout(timeout);
+
+      let newStats = stats;
+      let newHotVulns = hotVulns;
+      let newResults = results;
+
+      if (statsResponse.ok) {
+        try {
+          const data = await statsResponse.json();
+          newStats = data;
+          setStats(data);
+        } catch (e) {
+          console.error("Failed to parse stats JSON:", e);
+        }
+      } else {
+        console.error(`Stats API error: ${statsResponse.status}`);
+      }
+
+      if (hotResponse.ok) {
+        try {
+          const hotData = await hotResponse.json();
+          if (Array.isArray(hotData)) {
+            const hotItems: HotVulnerability[] = hotData.map((v: any) => ({
+              id: v.id,
+              type: v.type || "",
+              title: v.title || "",
+              severity: v.severity || "",
+              published_date: v.published_date || "",
+              source: v.source || "",
+              view_count: v.view_count || 0,
+              exploits_count: v.exploits_count || 0,
+            }));
+            newHotVulns = hotItems;
+            setHotVulns(hotItems);
+          }
+        } catch (e) {
+          console.error("Failed to parse hot vulns JSON:", e);
+        }
+      } else {
+        console.error(`Hot vulns API error: ${hotResponse.status}`);
+      }
+
+      if (searchResponse.ok) {
+        try {
+          const data = await searchResponse.json();
+          newResults = data;
+          setResults(data);
+        } catch (e) {
+          console.error("Failed to parse search JSON:", e);
+        }
+      } else {
+        console.error(`Search API error: ${searchResponse.status}`);
+      }
+
+      saveToCache(newResults, newStats, newHotVulns);
     } catch (error) {
-      console.error("Stats fetch error:", error);
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.warn("Fetch timed out");
+      } else {
+        console.error("Fetch error:", error);
+      }
     } finally {
-      setStatsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -185,12 +317,38 @@ export default function SearchPage() {
   };
 
   useEffect(() => {
+    // 只在首次初始化时执行一次
+    if (!isInitialized) {
+      setIsInitialized(true);
+      const loadedFromCache = loadFromCache();
+      
+      // 如果从缓存加载成功，不需要重新请求
+      if (loadedFromCache) {
+        return;
+      }
+      
+      // 缓存不可用，从服务器获取所有数据
+      fetchAllData();
+      return;
+    }
+    
+    // 只有在不是默认状态时才重新搜索
+    const isDefaultState = 
+      !severity && 
+      vulnType === 'all' && 
+      !hasExploit && 
+      !startDate && 
+      !endDate && 
+      !query && 
+      page === 1;
+      
+    if (isDefaultState) {
+      return;
+    }
+    
+    // 正常执行搜索
     doFetch(query, page);
-  }, [query, page, pageSize, severity, vulnType, hasExploit, startDate, endDate]);
-
-  useEffect(() => {
-    fetchStats();
-  }, []);
+  }, [query, page, pageSize, severity, vulnType, hasExploit, startDate, endDate, isInitialized]);
 
   const fetchResults = () => {
     doFetch(query, page);
@@ -203,23 +361,6 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      <header className="border-b bg-white/80 backdrop-blur-sm dark:bg-slate-950/80 sticky top-0 z-10">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Shield className="h-8 w-8 text-primary" />
-            <span className="text-xl font-bold">漏洞情报平台</span>
-          </Link>
-          <nav className="flex items-center gap-6">
-            <Link href="/search" className="text-sm font-medium text-primary">
-              搜索
-            </Link>
-            <Link href="/stats" className="text-sm font-medium hover:text-primary">
-              统计
-            </Link>
-          </nav>
-        </div>
-      </header>
-
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto mb-8">
           <form
@@ -246,67 +387,69 @@ export default function SearchPage() {
           </form>
         </div>
 
-        {!statsLoading && stats && (
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                  <Bug className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+        {/* 统计卡片 - 无需loading，直接显示 */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
+          {stats ? (
+            <>
+              <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                    <Bug className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
                 </div>
+                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{(stats.total_vulns || 0).toLocaleString()}</div>
+                <div className="text-sm text-muted-foreground mt-1">全部漏洞</div>
               </div>
-              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{(stats.total_cves || 0).toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground mt-1">全部漏洞</div>
-            </div>
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center">
-                  <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+              <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center">
+                    <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                  </div>
                 </div>
+                <div className="text-2xl font-bold text-red-600 dark:text-red-400">{(stats.high_severity_count || 0).toLocaleString()}</div>
+                <div className="text-sm text-muted-foreground mt-1">高危漏洞</div>
               </div>
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400">{(stats.high_severity_count || 0).toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground mt-1">高危漏洞</div>
-            </div>
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900 rounded-lg flex items-center justify-center">
-                  <Flame className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+              <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                    <FileCode className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
                 </div>
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400">{(stats.total_exploits || 0).toLocaleString()}</div>
+                <div className="text-sm text-muted-foreground mt-1">ExPloits总数</div>
               </div>
-              <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">{(stats.cisa_kev_count || 0).toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground mt-1">CISA KEV</div>
-            </div>
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                  <FileCode className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900 rounded-lg flex items-center justify-center">
+                    <Flame className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
                 </div>
+                <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">{(stats.cisa_kev_count || 0).toLocaleString()}</div>
+                <div className="text-sm text-muted-foreground mt-1">CISA KEV</div>
               </div>
-              <div className="text-2xl font-bold text-green-600 dark:text-green-400">{(stats.total_exploits || 0).toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground mt-1">有EXP漏洞</div>
-            </div>
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
-                  <Star className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
+                    <Clock className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                  </div>
                 </div>
+                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{(stats.published_today || 0).toLocaleString()}</div>
+                <div className="text-sm text-muted-foreground mt-1">今日发布</div>
               </div>
-              <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{(stats.cves_this_year || 0).toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground mt-1">今年新增</div>
-            </div>
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 rounded-lg flex items-center justify-center">
-                  <Shield className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 rounded-lg flex items-center justify-center">
+                    <Shield className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
                 </div>
+                <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{(stats.updated_today || 0).toLocaleString()}</div>
+                <div className="text-sm text-muted-foreground mt-1">今日更新</div>
               </div>
-              <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{(stats.high_severity_count || 0).toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground mt-1">高危以上</div>
-            </div>
-          </div>
-        )}
+            </>
+          ) : null}
+        </div>
 
-        {hotVulns.length > 0 && (
-          <div className="mb-8">
+        <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Flame className="h-5 w-5 text-orange-500" />
@@ -317,37 +460,67 @@ export default function SearchPage() {
                 <ChevronRight className="h-4 w-4" />
               </Link>
             </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {hotVulns.map((vuln) => (
-                <Link
-                  key={vuln.id}
-                  href={`/vuln/${vuln.id}`}
-                  className="block p-4 bg-white dark:bg-slate-800 rounded-xl border hover:shadow-md transition-all hover:-translate-y-0.5"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${severityBadgeColors[vuln.severity] || "bg-gray-100 text-gray-700"}`}>
-                      {severityLabels[vuln.severity] || vuln.severity}
-                    </span>
-                    <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded-full font-medium">
-                      热点漏洞
-                    </span>
-                  </div>
-                  <h3 className="font-medium text-sm mb-2 line-clamp-2">{vuln.title}</h3>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {formatDate(vuln.published_date)}
+            <div className="relative overflow-hidden">
+              {hotVulns.length > 0 ? (
+                <div className="flex gap-4 animate-marquee">
+                  {[...hotVulns, ...hotVulns].map((vuln, idx) => (
+                    <Link
+                      key={`${vuln.id}-${idx}`}
+                      href={`/vuln/${vuln.id}`}
+                      className="block p-4 bg-white dark:bg-slate-800 rounded-xl border hover:shadow-md transition-all hover:-translate-y-0.5 w-64 shrink-0"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${severityBadgeColors[vuln.severity] || "bg-gray-100 text-gray-700"}`}>
+                          {severityLabels[vuln.severity] || vuln.severity}
+                        </span>
+                        <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded-full font-medium flex items-center gap-1">
+                          <Flame className="h-3 w-3" />
+                          {vuln.view_count}
+                        </span>
+                      </div>
+                      <h3 className="font-medium text-sm mb-2 line-clamp-2">{vuln.title}</h3>
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {formatDate(vuln.published_date)}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Building className="h-3 w-3" />
+                          {vuln.source}
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex gap-4">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="w-64 shrink-0 p-4 bg-white dark:bg-slate-800 rounded-xl border shadow-sm animate-pulse">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-16 h-5 bg-slate-200 dark:bg-slate-700 rounded"></div>
+                        <div className="w-16 h-5 bg-slate-200 dark:bg-slate-700 rounded"></div>
+                      </div>
+                      <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded mb-2"></div>
+                      <div className="h-4 w-2/3 bg-slate-200 dark:bg-slate-700 rounded mb-4"></div>
+                      <div className="h-3 w-1/2 bg-slate-200 dark:bg-slate-700 rounded"></div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Building className="h-3 w-3" />
-                      {vuln.source}
-                    </div>
-                  </div>
-                </Link>
-              ))}
+                  ))}
+                </div>
+              )}
             </div>
+            <style jsx>{`
+              @keyframes marquee {
+                0% { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+              }
+              .animate-marquee {
+                animation: marquee 20s linear infinite;
+              }
+              .animate-marquee:hover {
+                animation-play-state: paused;
+              }
+            `}</style>
           </div>
-        )}
 
         <div className="bg-white dark:bg-slate-800 rounded-xl border shadow-sm overflow-hidden">
           <div className="p-4 border-b bg-slate-50 dark:bg-slate-700/50">
@@ -373,7 +546,7 @@ export default function SearchPage() {
             {showFilters && (
               <div className="mt-4 pt-4 border-t grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div>
-                  <label className="text-sm font-medium mb-2 block">漏洞类型</label>
+                  <label className="text-sm font-medium mb-2 block">漏洞源</label>
                   <select
                     value={vulnType}
                     onChange={(e) => {

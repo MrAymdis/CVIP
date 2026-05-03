@@ -1,90 +1,73 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func, extract
-from datetime import datetime, timedelta
+from sqlalchemy import func, extract, case, and_
+from datetime import datetime, timedelta, date
 from app.database import get_db
-from app.models import CVE, Exploit, Vendor, CWE, GitHubAdvisory, CNVDVulnerability, OSVVulnerability
+from app.models import CVE, Exploit, Vendor, CWE, GitHubAdvisory, CNVDVulnerability, OSVVulnerability, UnifiedVulnerability
 from app.schemas import StatsResponse, StatsOverview, TrendData, VendorRank, CWERank
+from app.cache import cache_sync_result
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
 
 
 @router.get("/overview", response_model=StatsOverview)
+@cache_sync_result(ttl=1800, key_prefix="stats")  # 缓存30分钟
 def get_overview(db: Session = Depends(get_db)):
     """Get platform statistics overview."""
-    total_cves = db.query(CVE).count()
-    total_cnvd = db.query(CNVDVulnerability).count()
-    total_osv = db.query(OSVVulnerability).count()
-    total_github_advisory = db.query(GitHubAdvisory).count()
-    total_vulnerabilities = total_cves + total_cnvd + total_osv + total_github_advisory
-
-    total_exploits = db.query(Exploit).count()
-    total_vendors = db.query(Vendor).count()
-
-    from app.models import Product
-    total_products = db.query(Product).count()
-
-    gh_critical_count = db.query(GitHubAdvisory).filter(
-        GitHubAdvisory.severity == "critical"
-    ).count()
-    gh_high_count = db.query(GitHubAdvisory).filter(
-        GitHubAdvisory.severity == "high"
-    ).count()
-    gh_medium_count = db.query(GitHubAdvisory).filter(
-        GitHubAdvisory.severity == "medium"
-    ).count()
-    gh_low_count = db.query(GitHubAdvisory).filter(
-        GitHubAdvisory.severity == "low"
-    ).count()
-
-    cnvd_critical_count = db.query(CNVDVulnerability).filter(
-        CNVDVulnerability.severity == "critical"
-    ).count()
-    cnvd_high_count = db.query(CNVDVulnerability).filter(
-        CNVDVulnerability.severity == "high"
-    ).count()
-
-    current_year = datetime.now().year
-    cves_this_year = db.query(CVE).filter(
-        extract('year', CVE.published_date) == current_year
-    ).count()
-
-    exploits_this_year = db.query(Exploit).filter(
-        extract('year', Exploit.published_date) == current_year
-    ).count()
-
-    cisa_kev_count = db.query(CVE).filter(CVE.cisa_kev == True).count()
-
-    cve_high_count = db.query(CVE).filter(
-        (CVE.cvss_v3_score >= 7.0) | (CVE.cvss_v4_score >= 7.0)
-    ).count()
-
-    critical_count = gh_critical_count + cnvd_critical_count + cve_high_count
-
-    return StatsOverview(
-        total_cves=total_vulnerabilities,
-        total_exploits=total_exploits,
-        total_vendors=total_vendors,
-        total_products=total_products,
-        total_github_advisory=total_github_advisory,
-        cves_this_year=cves_this_year,
-        exploits_this_year=exploits_this_year,
-        cisa_kev_count=cisa_kev_count,
-        high_severity_count=critical_count,
-        github_advisory_critical_count=gh_critical_count,
-        github_advisory_high_count=gh_high_count,
-        github_advisory_medium_count=gh_medium_count,
-        github_advisory_low_count=gh_low_count
-    )
+    today = datetime.utcnow().date()
+    current_year = datetime.utcnow().year
+    thirty_days_ago = today - timedelta(days=30)
+    one_year_ago = today - timedelta(days=365)
+    
+    try:
+        result = db.query(
+            func.count(UnifiedVulnerability.id).label('total_vulns'),
+            func.count(case((UnifiedVulnerability.exploits_count > 0, 1))).label('total_exploits'),
+            func.count(case((UnifiedVulnerability.severity.in_(['CRITICAL', 'HIGH']), 1))).label('high_severity_count'),
+            func.count(case((UnifiedVulnerability.cisa_kev == True, 1))).label('cisa_kev_count'),
+            func.count(case((func.date_part('year', UnifiedVulnerability.published_date) == current_year, 1))).label('cves_this_year'),
+            func.count(case((and_(UnifiedVulnerability.exploits_count > 0, UnifiedVulnerability.published_date >= one_year_ago), 1))).label('exploits_this_year'),
+            func.count(case((func.date(UnifiedVulnerability.published_date) == today, 1))).label('published_today'),
+            func.count(case((func.date(UnifiedVulnerability.modified_date) == today, 1))).label('updated_today'),
+        ).first()
+        
+        return StatsOverview(
+            total_vulns=result.total_vulns or 0,
+            total_exploits=result.total_exploits or 0,
+            total_vendors=0,
+            total_products=0,
+            total_github_advisory=0,
+            cves_this_year=result.cves_this_year or 0,
+            exploits_this_year=result.exploits_this_year or 0,
+            cisa_kev_count=result.cisa_kev_count or 0,
+            high_severity_count=result.high_severity_count or 0,
+            published_today=result.published_today or 0,
+            updated_today=result.updated_today or 0
+        )
+    except Exception as e:
+        print(f"Error in get_overview: {e}")
+        return StatsOverview(
+            total_vulns=0,
+            total_exploits=0,
+            total_vendors=0,
+            total_products=0,
+            total_github_advisory=0,
+            cves_this_year=0,
+            exploits_this_year=0,
+            cisa_kev_count=0,
+            high_severity_count=0,
+            published_today=0,
+            updated_today=0
+        )
 
 
 @router.get("/trends")
+@cache_sync_result(ttl=3600, key_prefix="stats")  # 缓存1小时
 def get_trends(months: int = 12, db: Session = Depends(get_db)):
     """Get CVE trends over time."""
     end_date = datetime.now()
     start_date = end_date - timedelta(days=30 * months)
     
-    # Monthly CVE counts
     results = db.query(
         func.date_trunc('month', CVE.published_date).label('month'),
         func.count(CVE.id).label('count')
@@ -105,6 +88,7 @@ def get_trends(months: int = 12, db: Session = Depends(get_db)):
 
 
 @router.get("/vendors")
+@cache_sync_result(ttl=3600, key_prefix="stats")  # 缓存1小时
 def get_top_vendors(limit: int = 10, db: Session = Depends(get_db)):
     """Get top vendors by CVE count."""
     results = db.query(
@@ -118,7 +102,6 @@ def get_top_vendors(limit: int = 10, db: Session = Depends(get_db)):
     
     vendors = []
     for row in results:
-        # Count exploited CVEs for this vendor
         exploited_count = db.query(CVE).join(Vendor).filter(
             Vendor.name == row.name,
             CVE.exploits_count > 0
@@ -134,9 +117,9 @@ def get_top_vendors(limit: int = 10, db: Session = Depends(get_db)):
 
 
 @router.get("/cwes")
+@cache_sync_result(ttl=3600, key_prefix="stats")  # 缓存1小时
 def get_top_cwes(limit: int = 10, db: Session = Depends(get_db)):
     """Get top CWEs by CVE count."""
-    # Get all CVEs and count CWE occurrences
     from sqlalchemy import text
     
     result = db.execute(text("""
@@ -150,7 +133,6 @@ def get_top_cwes(limit: int = 10, db: Session = Depends(get_db)):
     
     cwes = []
     for row in result:
-        # Get CWE name if available
         cwe_record = db.query(CWE).filter(CWE.cwe_id == row.cwe_id).first()
         name = cwe_record.name if cwe_record else None
         

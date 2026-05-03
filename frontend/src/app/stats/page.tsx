@@ -5,19 +5,21 @@ import Link from "next/link";
 import { Shield, Database, Bug, TrendingUp, AlertTriangle } from "lucide-react";
 
 interface StatsOverview {
-  total_cves: number;
+  total_vulns: number;
   total_exploits: number;
   total_vendors: number;
   total_products: number;
   total_github_advisory: number;
-  github_advisory_critical_count: number;
-  github_advisory_high_count: number;
-  github_advisory_medium_count: number;
-  github_advisory_low_count: number;
   cves_this_year: number;
   exploits_this_year: number;
   cisa_kev_count: number;
   high_severity_count: number;
+  published_today: number;
+  updated_today: number;
+  github_advisory_critical_count: number;
+  github_advisory_high_count: number;
+  github_advisory_medium_count: number;
+  github_advisory_low_count: number;
 }
 
 interface TrendData {
@@ -84,81 +86,60 @@ export default function StatsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      {/* Header */}
-      <header className="border-b bg-white dark:bg-slate-950 sticky top-0 z-10">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Shield className="h-8 w-8 text-primary" />
-            <span className="text-xl font-bold">漏洞情报平台</span>
-          </Link>
-          <nav className="flex items-center gap-6">
-            <Link href="/search" className="text-sm font-medium hover:text-primary">
-              搜索
-            </Link>
-            <Link href="/stats" className="text-sm font-medium text-primary">
-              统计
-            </Link>
-          </nav>
-        </div>
-      </header>
-
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8">平台统计</h1>
-
-        {/* Overview Cards */}
         {overview && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
             <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border">
               <Database className="h-8 w-8 text-primary mb-2" />
-              <div className="text-2xl font-bold">{overview.total_cves.toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground">总 CVE 数</div>
+              <div className="text-2xl font-bold">{(overview.total_vulns || 0).toLocaleString()}</div>
+              <div className="text-sm text-muted-foreground">总漏洞数</div>
             </div>
             <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border">
               <Bug className="h-8 w-8 text-green-500 mb-2" />
-              <div className="text-2xl font-bold">{overview.total_exploits.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{(overview.total_exploits || 0).toLocaleString()}</div>
               <div className="text-sm text-muted-foreground">总 Exploit 数</div>
             </div>
             <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border">
               <AlertTriangle className="h-8 w-8 text-red-500 mb-2" />
-              <div className="text-2xl font-bold">{overview.cisa_kev_count.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{(overview.cisa_kev_count || 0).toLocaleString()}</div>
               <div className="text-sm text-muted-foreground">CISA KEV</div>
             </div>
             <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border">
               <TrendingUp className="h-8 w-8 text-orange-500 mb-2" />
-              <div className="text-2xl font-bold">{overview.high_severity_count.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{(overview.high_severity_count || 0).toLocaleString()}</div>
               <div className="text-sm text-muted-foreground">高危漏洞</div>
             </div>
             <div className="p-6 bg-white dark:bg-slate-800 rounded-xl border">
               <Shield className="h-8 w-8 text-blue-500 mb-2" />
-              <div className="text-2xl font-bold">{overview.total_github_advisory.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{(overview.total_github_advisory || 0).toLocaleString()}</div>
               <div className="text-sm text-muted-foreground">GitHub Advisory</div>
             </div>
           </div>
         )}
 
-        {overview && overview.total_github_advisory > 0 && (
+        {overview && (overview.total_github_advisory || 0) > 0 && (
           <div className="grid md:grid-cols-4 gap-4 mb-8">
             <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-xl border border-red-200 dark:border-red-800">
               <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                {overview.github_advisory_critical_count.toLocaleString()}
+                {(overview.github_advisory_critical_count || 0).toLocaleString()}
               </div>
               <div className="text-sm text-muted-foreground">Critical</div>
             </div>
             <div className="p-4 bg-orange-50 dark:bg-orange-900/30 rounded-xl border border-orange-200 dark:border-orange-800">
               <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                {overview.github_advisory_high_count.toLocaleString()}
+                {(overview.github_advisory_high_count || 0).toLocaleString()}
               </div>
               <div className="text-sm text-muted-foreground">High</div>
             </div>
             <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-xl border border-yellow-200 dark:border-yellow-800">
               <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-                {overview.github_advisory_medium_count.toLocaleString()}
+                {(overview.github_advisory_medium_count || 0).toLocaleString()}
               </div>
               <div className="text-sm text-muted-foreground">Medium</div>
             </div>
             <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl border border-green-200 dark:border-green-800">
               <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                {overview.github_advisory_low_count.toLocaleString()}
+                {(overview.github_advisory_low_count || 0).toLocaleString()}
               </div>
               <div className="text-sm text-muted-foreground">Low</div>
             </div>

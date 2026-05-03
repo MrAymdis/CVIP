@@ -1,21 +1,13 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
+import Header from "@/components/Header";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "网络安全漏洞情报平台",
-  description: "聚合14+数据源的网络安全漏洞情报平台，提供CVE查询、Exploit检索、漏洞统计分析",
+  title: "漏洞情报平台",
+  description: "综合漏洞情报平台，支持CVE、CNVD、OSV、GitHub Advisory等多数据源",
 };
 
 export default function RootLayout({
@@ -25,12 +17,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <Suspense fallback={<div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full"></div></div>}>
-          {children}
-        </Suspense>
+      <body className={inter.className}>
+        <Header />
+        {children}
       </body>
     </html>
   );

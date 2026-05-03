@@ -1,367 +1,315 @@
 """
 统一搜索API
-支持同时搜索CVE和非CVE漏洞
+支持同时搜索CVE、CNVD、OSV和GitHub Advisory漏洞
+使用统一漏洞数据表进行搜索
 """
 from fastapi import APIRouter, Query, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, text
-from typing import Optional, List, Union
-from datetime import date, datetime
+from sqlalchemy import func, or_, text, String
+from typing import Optional, List, Dict
+from datetime import date, datetime, timedelta
 
 from app.database import get_db
-from app.models import CVE, CNVDVulnerability, OSVVulnerability, GitHubAdvisory
+from app.models import UnifiedVulnerability
 
 router = APIRouter()
-
-
-class UnifiedVulnerability:
-    """统一漏洞数据结构"""
-    def __init__(self, cve=None, vuln=None, osv=None, github_advisory=None):
-        if cve:
-            self.type = "cve"
-            self.id = cve.cve_id
-            self.title = cve.title
-            self.description = cve.description
-            self.source = "cvelistv5"
-            self.severity = cve.cvss_v3_severity or cve.cvss_v4_severity
-            self.cvss_score = cve.cvss_v3_score or cve.cvss_v4_score
-            self.published_date = cve.published_date
-            self.modified_date = cve.modified_date
-            self.references_count = cve.references_count
-            self.exploits_count = cve.exploits_count
-        elif vuln:
-            self.type = "vulnerability"
-            self.id = vuln.vuln_id
-            self.title = vuln.title
-            self.description = vuln.description
-            self.source = vuln.source
-            self.severity = vuln.severity
-            self.cvss_score = vuln.cvss_v3_score
-            self.published_date = vuln.published_date
-            self.modified_date = vuln.modified_date
-            self.references_count = len(vuln.references) if vuln.references else 0
-            self.exploits_count = vuln.exploits_count if hasattr(vuln, 'exploits_count') else 0
-        elif osv:
-            self.type = "osv"
-            self.id = osv.osv_id
-            self.title = osv.summary
-            self.description = osv.details
-            self.source = "osv"
-            self.severity = None
-            self.cvss_score = None
-            self.published_date = osv.published
-            self.modified_date = osv.modified
-            self.references_count = len(osv.references) if osv.references else 0
-            self.exploits_count = osv.exploits_count if hasattr(osv, 'exploits_count') else 0
-        elif github_advisory:
-            self.type = "github_advisory"
-            self.id = github_advisory.ghsa_id
-            self.title = github_advisory.summary
-            self.description = github_advisory.description
-            self.source = "github_advisory"
-            self.severity = github_advisory.severity
-            self.cvss_score = github_advisory.cvss_score
-            self.published_date = github_advisory.published_at
-            self.modified_date = github_advisory.updated_at
-            self.references_count = len(github_advisory.references) if isinstance(github_advisory.references, list) else 0
-            self.exploits_count = 0
-
-
-def build_full_text_search(query_str: str):
-    """构建全文搜索查询"""
-    if not query_str:
-        return None
-    
-    words = query_str.replace("'", " ").split()
-    tsquery_parts = []
-    for word in words:
-        if len(word) >= 3:
-            tsquery_parts.append(f"'{word}:*'")
-    
-    if tsquery_parts:
-        return " & ".join(tsquery_parts)
-    return None
-
-
-def estimate_count(db: Session, table_name: str, filter_query=None):
-    """估算表的记录数"""
-    if filter_query is None:
-        # 使用reltuples估算
-        result = db.execute(text(f"SELECT reltuples::bigint FROM pg_class WHERE relname = '{table_name}'"))
-        return result.scalar() or 0
-    
-    # 如果有过滤器，执行实际计数但设置超时
-    try:
-        return filter_query.scalar() or 0
-    except:
-        # 如果计数超时，返回估算值
-        result = db.execute(text(f"SELECT reltuples::bigint FROM pg_class WHERE relname = '{table_name}'"))
-        return result.scalar() or 0
 
 
 @router.get("/")
 @router.get("")
 def unified_search(
     q: Optional[str] = Query(None, description="搜索关键词"),
-    type: Optional[str] = Query(None, description="漏洞类型: cve, cnvd, osv, github_advisory, all"),
+    type: Optional[str] = Query(None, description="漏洞源类型: cve, cnvd, osv, ghsa, all"),
     severity: Optional[str] = Query(None, description="严重程度筛选"),
+    cwe: Optional[str] = Query(None, description="CWE漏洞类型筛选（如CWE-284）"),
+    affected_product: Optional[str] = Query(None, description="受影响产品筛选"),
     has_exploit: Optional[bool] = Query(None, description="是否有exploit"),
+    cisa_kev: Optional[bool] = Query(None, description="是否CISA KEV"),
     published_after: Optional[date] = Query(None, description="发布日期开始"),
     published_before: Optional[date] = Query(None, description="发布日期结束"),
-    sort_by: str = Query("published_date", description="排序字段: published_date, modified_date"),
+    cvss_min: Optional[float] = Query(None, description="CVSS最低评分"),
+    cvss_max: Optional[float] = Query(None, description="CVSS最高评分"),
+    sort_by: str = Query("published_date", description="排序字段: published_date, modified_date, cvss_v3_score"),
     sort_order: str = Query("desc", description="排序方向: asc, desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """统一搜索漏洞（同时搜索CVE、CNVD、OSV和GitHub Advisory漏洞）"""
-    results = []
+    """统一搜索漏洞（使用统一漏洞数据表）"""
+    query = db.query(UnifiedVulnerability)
+    
     sort_desc = sort_order.lower() == "desc"
     
-    ts_query_str = build_full_text_search(q)
-    
-    cve_total = 0
-    vuln_total = 0
-    osv_total = 0
-    gh_total = 0
-    
-    # 获取足够多的数据用于合并排序，避免分页导致最新数据被遗漏
-    fetch_limit = page_size * 5
-    
-    # 搜索CVE漏洞
-    if type is None or type == "all" or type == "cve":
-        cve_query = db.query(CVE)
+    if q:
+        words = q.replace("'", " ").split()
+        tsquery_parts = []
+        for word in words:
+            if len(word) >= 2:
+                tsquery_parts.append(f"'{word}:*'")
         
-        if q:
-            if ts_query_str:
-                cve_query = cve_query.filter(
-                    text("to_tsvector('english', cve_id || ' ' || COALESCE(title, '') || ' ' || COALESCE(description, '')) @@ to_tsquery(:ts_query)")
-                ).params(ts_query=ts_query_str)
-            else:
-                cve_query = cve_query.filter(
-                    or_(
-                        CVE.cve_id.ilike(f"%{q}%"),
-                        CVE.title.ilike(f"%{q}%")
-                    )
+        if tsquery_parts:
+            ts_query_str = " & ".join(tsquery_parts)
+            query = query.filter(
+                text("to_tsvector('english', vuln_id || ' ' || COALESCE(title, '') || ' ' || COALESCE(description, '')) @@ to_tsquery(:ts_query)")
+            ).params(ts_query=ts_query_str)
+        else:
+            query = query.filter(
+                or_(
+                    UnifiedVulnerability.vuln_id.ilike(f"%{q}%"),
+                    UnifiedVulnerability.title.ilike(f"%{q}%"),
+                    UnifiedVulnerability.description.ilike(f"%{q}%")
                 )
-        
-        if severity:
-            cve_query = cve_query.filter(CVE.cvss_v3_severity == severity.upper())
-        
-        if has_exploit is not None:
-            if has_exploit:
-                cve_query = cve_query.filter(CVE.exploits_count > 0)
-            else:
-                cve_query = cve_query.filter(CVE.exploits_count == 0)
-        
-        if published_after:
-            cve_query = cve_query.filter(CVE.published_date >= published_after)
-        
-        if published_before:
-            cve_query = cve_query.filter(CVE.published_date <= published_before)
-        
-        if sort_by == "modified_date":
-            cve_query = cve_query.order_by(CVE.modified_date.desc() if sort_desc else CVE.modified_date.asc())
-        else:
-            cve_query = cve_query.order_by(CVE.published_date.desc() if sort_desc else CVE.published_date.asc())
-        
-        cve_results = cve_query.limit(fetch_limit).all()
-        for cve in cve_results:
-            results.append(UnifiedVulnerability(cve=cve))
+            )
     
-    # 搜索CNVD漏洞
-    if type is None or type == "all" or type == "cnvd":
-        vuln_query = db.query(CNVDVulnerability)
-        
-        if q:
-            if ts_query_str:
-                vuln_query = vuln_query.filter(
-                    text("to_tsvector('english', vuln_id || ' ' || COALESCE(title, '') || ' ' || COALESCE(description, '')) @@ to_tsquery(:ts_query)")
-                ).params(ts_query=ts_query_str)
-            else:
-                vuln_query = vuln_query.filter(
-                    or_(
-                        CNVDVulnerability.vuln_id.ilike(f"%{q}%"),
-                        CNVDVulnerability.title.ilike(f"%{q}%")
-                    )
-                )
-        
-        if type == "cnvd":
-            vuln_query = vuln_query.filter(CNVDVulnerability.source == "CNVD")
-        
-        if severity:
-            vuln_query = vuln_query.filter(CNVDVulnerability.severity == severity.lower())
-        
-        if has_exploit is not None:
-            if has_exploit:
-                vuln_query = vuln_query.filter(CNVDVulnerability.exploits_count > 0)
-            else:
-                vuln_query = vuln_query.filter(CNVDVulnerability.exploits_count == 0)
-        
-        if published_after:
-            vuln_query = vuln_query.filter(CNVDVulnerability.published_date >= published_after)
-        
-        if published_before:
-            vuln_query = vuln_query.filter(CNVDVulnerability.published_date <= published_before)
-        
-        if sort_by == "modified_date":
-            vuln_query = vuln_query.order_by(CNVDVulnerability.modified_date.desc() if sort_desc else CNVDVulnerability.modified_date.asc())
-        else:
-            vuln_query = vuln_query.order_by(CNVDVulnerability.published_date.desc() if sort_desc else CNVDVulnerability.published_date.asc())
-        
-        vuln_results = vuln_query.limit(fetch_limit).all()
-        for vuln in vuln_results:
-            results.append(UnifiedVulnerability(vuln=vuln))
+    if type and type != "all":
+        query = query.filter(UnifiedVulnerability.type == type.lower())
     
-    # 搜索OSV漏洞
-    if type is None or type == "all" or type == "osv":
-        osv_query = db.query(OSVVulnerability)
-        
-        if q:
-            if ts_query_str:
-                osv_query = osv_query.filter(
-                    text("to_tsvector('english', osv_id || ' ' || COALESCE(summary, '') || ' ' || COALESCE(details, '')) @@ to_tsquery(:ts_query)")
-                ).params(ts_query=ts_query_str)
-            else:
-                osv_query = osv_query.filter(OSVVulnerability.osv_id.ilike(f"%{q}%"))
-        
-        if has_exploit is not None:
-            if has_exploit:
-                osv_query = osv_query.filter(OSVVulnerability.exploits_count > 0)
-            else:
-                osv_query = osv_query.filter(OSVVulnerability.exploits_count == 0)
-        
-        if published_after:
-            osv_query = osv_query.filter(OSVVulnerability.published >= published_after)
-        
-        if published_before:
-            osv_query = osv_query.filter(OSVVulnerability.published <= published_before)
-        
-        if sort_by == "modified_date":
-            osv_query = osv_query.order_by(OSVVulnerability.modified.desc() if sort_desc else OSVVulnerability.modified.asc())
-        else:
-            osv_query = osv_query.order_by(OSVVulnerability.published.desc() if sort_desc else OSVVulnerability.published.asc())
-        
-        osv_results = osv_query.limit(fetch_limit).all()
-        for osv in osv_results:
-            results.append(UnifiedVulnerability(osv=osv))
+    if severity:
+        query = query.filter(UnifiedVulnerability.severity == severity.upper())
     
-    # 搜索GitHub Advisory漏洞
-    if type is None or type == "all" or type == "github_advisory":
-        gh_query = db.query(GitHubAdvisory)
-        
-        if q:
-            if ts_query_str:
-                gh_query = gh_query.filter(
-                    text("to_tsvector('english', ghsa_id || ' ' || COALESCE(cve_id, '') || ' ' || COALESCE(summary, '') || ' ' || COALESCE(description, '')) @@ to_tsquery(:ts_query)")
-                ).params(ts_query=ts_query_str)
-            else:
-                gh_query = gh_query.filter(
-                    or_(
-                        GitHubAdvisory.ghsa_id.ilike(f"%{q}%"),
-                        GitHubAdvisory.cve_id.ilike(f"%{q}%")
-                    )
-                )
-        
-        if severity:
-            gh_query = gh_query.filter(GitHubAdvisory.severity == severity.lower())
-        
-        if published_after:
-            gh_query = gh_query.filter(GitHubAdvisory.published_at >= published_after)
-        
-        if published_before:
-            gh_query = gh_query.filter(GitHubAdvisory.published_at <= published_before)
-        
-        if sort_by == "modified_date":
-            gh_query = gh_query.order_by(GitHubAdvisory.updated_at.desc() if sort_desc else GitHubAdvisory.updated_at.asc())
+    if has_exploit is not None:
+        if has_exploit:
+            query = query.filter(UnifiedVulnerability.exploits_count > 0)
         else:
-            gh_query = gh_query.order_by(GitHubAdvisory.published_at.desc() if sort_desc else GitHubAdvisory.published_at.asc())
-        
-        gh_results = gh_query.limit(fetch_limit).all()
-        for gh in gh_results:
-            results.append(UnifiedVulnerability(github_advisory=gh))
+            query = query.filter(UnifiedVulnerability.exploits_count == 0)
     
-    # 合并后排序（这是关键：在所有数据中排序）
+    if cisa_kev is not None:
+        query = query.filter(UnifiedVulnerability.cisa_kev == cisa_kev)
+    
+    if cwe:
+        cwe_pattern = cwe.upper()
+        query = query.filter(UnifiedVulnerability.cwes.any(cwe_pattern))
+
+    if affected_product:
+        query = query.filter(UnifiedVulnerability.affected.cast(String).ilike(f"%{affected_product}%"))
+
+    if published_after:
+        query = query.filter(UnifiedVulnerability.published_date >= published_after)
+
+    if published_before:
+        query = query.filter(UnifiedVulnerability.published_date <= published_before)
+
+    if cvss_min is not None:
+        query = query.filter(UnifiedVulnerability.cvss_v3_score >= cvss_min)
+
+    if cvss_max is not None:
+        query = query.filter(UnifiedVulnerability.cvss_v3_score <= cvss_max)
+
+    total = query.count()
+    
     if sort_by == "modified_date":
-        results.sort(key=lambda x: x.modified_date if x.modified_date else datetime.min, reverse=sort_desc)
+        query = query.order_by(UnifiedVulnerability.modified_date.desc() if sort_desc else UnifiedVulnerability.modified_date.asc())
+    elif sort_by == "cvss_v3_score":
+        query = query.order_by(UnifiedVulnerability.cvss_v3_score.desc() if sort_desc else UnifiedVulnerability.cvss_v3_score.asc())
     else:
-        results.sort(key=lambda x: x.published_date if x.published_date else datetime.min, reverse=sort_desc)
+        query = query.order_by(UnifiedVulnerability.published_date.desc() if sort_desc else UnifiedVulnerability.published_date.asc())
     
-    # 最后进行分页
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
-    paginated_results = results[start_idx:end_idx]
-    
-    # 获取总数
-    if type is None or type == "all":
-        # 无筛选条件时使用精确计数
-        cve_total = db.query(CVE).count()
-        vuln_total = db.query(CNVDVulnerability).count()
-        osv_total = db.query(OSVVulnerability).count()
-        gh_total = db.query(GitHubAdvisory).count()
-        total = cve_total + vuln_total + osv_total + gh_total
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    results = query.all()
+
+    has_filters = any([q, type and type != "all", severity, cwe, affected_product, has_exploit is not None, cisa_kev is not None, published_after, published_before, cvss_min is not None, cvss_max is not None])
+
+    if not has_filters:
+        type_counts = db.query(
+            UnifiedVulnerability.type,
+            func.count(UnifiedVulnerability.id)
+        ).group_by(UnifiedVulnerability.type).all()
+        type_counts_dict = {t: c for t, c in type_counts}
     else:
-        # 有筛选条件时使用各类型的实际计数
-        cve_total = db.query(CVE).count() if type == "cve" else 0
-        vuln_total = db.query(CNVDVulnerability).count() if type == "cnvd" else 0
-        osv_total = db.query(OSVVulnerability).count() if type == "osv" else 0
-        gh_total = db.query(GitHubAdvisory).count() if type == "github_advisory" else 0
-        total = cve_total + vuln_total + osv_total + gh_total
+        type_counts_dict = {}
     
     return {
         "data": [
             {
                 "type": r.type,
-                "id": r.id,
+                "id": r.vuln_id,
                 "title": r.title,
+                "title_zh": r.title_zh,
                 "description": r.description[:200] + "..." if r.description and len(r.description) > 200 else r.description,
-                "source": r.source,
+                "description_zh": r.description_zh[:200] + "..." if r.description_zh and len(r.description_zh) > 200 else r.description_zh,
                 "severity": r.severity,
-                "cvss_score": r.cvss_score,
+                "cvss_scores": r.cvss_scores,
+                "cvss_v3_score": r.cvss_v3_score,
+                "cvss_v3_severity": r.severity if r.type == "cve" or r.type == "cnvd" or r.type == "ghsa" else None,
+                "cvss_v3_vector": r.cvss_v3_vector,
+                "cvss_v4_score": r.cvss_v4_score,
+                "cvss_v4_severity": None,
+                "cvss_v4_vector": r.cvss_v4_vector,
+                "epss_score": r.epss_score,
+                "cisa_kev": r.cisa_kev,
+                "fixes": r.fixes,
                 "published_date": r.published_date,
-                "references_count": r.references_count,
-                "exploits_count": r.exploits_count if hasattr(r, 'exploits_count') else 0
+                "modified_date": r.modified_date,
+                "exploits_count": r.exploits_count or 0,
+                "view_count": r.view_count or 0,
+                "cwes": r.cwes,
+                "related_cve_ids": r.related_cve_ids,
+                "source": r.source or (r.data_sources[0] if r.data_sources and len(r.data_sources) > 0 else None)
             }
-            for r in paginated_results
+            for r in results
         ],
         "total": total,
         "page": page,
         "page_size": page_size,
-        "cve_count": cve_total,
-        "vulnerability_count": vuln_total,
-        "osv_count": osv_total,
-        "github_advisory_count": gh_total
+        "type_counts": type_counts_dict
     }
 
 
 @router.get("/stats")
 def get_unified_stats(db: Session = Depends(get_db)):
     """获取统一统计信息"""
-    cve_count = db.query(CVE).count()
-    vuln_count = db.query(CNVDVulnerability).count()
-    osv_count = db.query(OSVVulnerability).count()
-    gh_count = db.query(GitHubAdvisory).count()
+    total = db.query(UnifiedVulnerability).count()
     
-    cve_severity_stats = db.query(CVE.cvss_v3_severity, func.count(CVE.id)) \
-                          .group_by(CVE.cvss_v3_severity) \
-                          .all()
+    type_counts = db.query(
+        UnifiedVulnerability.type,
+        func.count(UnifiedVulnerability.id)
+    ).group_by(UnifiedVulnerability.type).all()
     
-    gh_severity_stats = db.query(GitHubAdvisory.severity, func.count(GitHubAdvisory.id)) \
-                          .group_by(GitHubAdvisory.severity) \
-                          .all()
+    severity_counts = db.query(
+        UnifiedVulnerability.severity,
+        func.count(UnifiedVulnerability.id)
+    ).group_by(UnifiedVulnerability.severity).all()
     
-    vuln_source_stats = db.query(CNVDVulnerability.source, func.count(CNVDVulnerability.id)) \
-                          .group_by(CNVDVulnerability.source) \
-                          .order_by(func.count(CNVDVulnerability.id).desc()) \
-                          .all()
+    kev_count = db.query(UnifiedVulnerability).filter(UnifiedVulnerability.cisa_kev == True).count()
+    
+    avg_cvss = db.query(func.avg(UnifiedVulnerability.cvss_v3_score)).filter(UnifiedVulnerability.cvss_v3_score.isnot(None)).scalar()
+    
+    today = datetime.now().date()
+    today_start = datetime.combine(today, datetime.min.time())
+    thirty_days_ago = today - timedelta(days=30)
+    
+    today_published_count = db.query(UnifiedVulnerability).filter(
+        UnifiedVulnerability.published_date >= today_start
+    ).count()
+    
+    today_modified_count = db.query(UnifiedVulnerability).filter(
+        UnifiedVulnerability.modified_date >= today_start
+    ).count()
+    
+    recent_published_count = db.query(UnifiedVulnerability).filter(
+        UnifiedVulnerability.published_date >= thirty_days_ago
+    ).count()
+    
+    recent_modified_count = db.query(UnifiedVulnerability).filter(
+        UnifiedVulnerability.modified_date >= thirty_days_ago
+    ).count()
     
     return {
-        "total_cves": cve_count,
-        "total_vulnerabilities": vuln_count,
-        "total_osv": osv_count,
-        "total_github_advisory": gh_count,
-        "total": cve_count + vuln_count + osv_count + gh_count,
-        "cve_severity_distribution": {severity: count for severity, count in cve_severity_stats},
-        "github_advisory_severity_distribution": {severity: count for severity, count in gh_severity_stats},
-        "vulnerability_source_distribution": {source: count for source, count in vuln_source_stats}
+        "total": total,
+        "type_distribution": {t: c for t, c in type_counts},
+        "severity_distribution": {s: c for s, c in severity_counts},
+        "cisa_kev_count": kev_count,
+        "average_cvss_score": round(avg_cvss, 2) if avg_cvss else None,
+        "today_published": today_published_count,
+        "today_modified": today_modified_count,
+        "recent_30_days_published": recent_published_count,
+        "recent_30_days_modified": recent_modified_count
     }
+
+
+@router.get("/top-viewed")
+def get_top_viewed_vulnerabilities(
+    limit: int = Query(10, ge=1, le=100, description="返回数量"),
+    db: Session = Depends(get_db)
+):
+    """获取查看量最高的漏洞列表"""
+    results = db.query(UnifiedVulnerability).filter(
+        UnifiedVulnerability.view_count > 0
+    ).order_by(
+        UnifiedVulnerability.view_count.desc()
+    ).limit(limit).all()
+
+    vulnerabilities = []
+    for v in results:
+        vulnerabilities.append({
+            "id": v.vuln_id,
+            "type": v.type,
+            "title": v.title or v.vuln_id,
+            "severity": v.severity,
+            "published_date": v.published_date.isoformat() if v.published_date else None,
+            "source": v.source,
+            "view_count": v.view_count or 0,
+            "exploits_count": v.exploits_count or 0,
+            "cvss_v3_score": v.cvss_v3_score
+        })
+
+    return vulnerabilities
+
+
+@router.get("/{vuln_id}")
+def get_vulnerability_detail(
+    vuln_id: str,
+    type: Optional[str] = Query(None, description="漏洞类型"),
+    db: Session = Depends(get_db)
+):
+    """获取漏洞详情"""
+    query = db.query(UnifiedVulnerability).filter(UnifiedVulnerability.vuln_id == vuln_id)
+    
+    if type:
+        query = query.filter(UnifiedVulnerability.type == type.lower())
+    
+    result = query.first()
+    
+    if not result:
+        return {"error": "Vulnerability not found"}
+    
+    return {
+        "type": result.type,
+        "id": result.vuln_id,
+        "title": result.title,
+        "title_zh": result.title_zh,
+        "description": result.description,
+        "description_zh": result.description_zh,
+        "severity": result.severity,
+        "cvss_v3_score": result.cvss_v3_score,
+        "cvss_v3_severity": result.severity,
+        "cvss_v3_vector": result.cvss_v3_vector,
+        "cvss_v4_score": result.cvss_v4_score,
+        "cvss_v4_severity": result.severity,
+        "cvss_v4_vector": result.cvss_v4_vector,
+        "epss_score": result.epss_score,
+        "epss_percentile": result.epss_percentile,
+        "cwes": result.cwes,
+        "cisa_kev": result.cisa_kev,
+        "cisa_kev_date_added": result.cisa_kev_date_added,
+        "cisa_due_date": result.cisa_due_date,
+        "cisa_required_action": result.cisa_required_action,
+        "published_date": result.published_date,
+        "modified_date": result.modified_date,
+        "withdrawn_date": result.withdrawn_date,
+        "aliases": result.aliases,
+        "related": result.related,
+        "affected": result.affected,
+        "references": result.references,
+        "source": result.source or (result.data_sources[0] if result.data_sources and len(result.data_sources) > 0 else None),
+        "data_sources": result.data_sources,
+        "tags": result.tags,
+        "related_cve_ids": result.related_cve_ids,
+        "exploits_count": result.exploits_count,
+        "view_count": result.view_count,
+        "created_at": result.created_at,
+        "updated_at": result.updated_at
+    }
+
+
+@router.post("/{vuln_id}/view")
+def increment_view_count(
+    vuln_id: str,
+    type: Optional[str] = Query(None, description="漏洞类型"),
+    db: Session = Depends(get_db)
+):
+    """增加漏洞查看量"""
+    query = db.query(UnifiedVulnerability).filter(UnifiedVulnerability.vuln_id == vuln_id)
+
+    if type:
+        query = query.filter(UnifiedVulnerability.type == type.lower())
+
+    result = query.first()
+
+    if not result:
+        return {"error": "Vulnerability not found"}
+
+    result.view_count = (result.view_count or 0) + 1
+    db.commit()
+
+    return {"vuln_id": vuln_id, "view_count": result.view_count}

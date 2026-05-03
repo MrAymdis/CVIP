@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.database import SessionLocal
 from app.crawlers.cvelistv5_crawler_v2 import CVEListV5CrawlerV2
+from app.services.unified_writer import save_to_unified, cve_to_unified_format
 
 
 def get_nvd_recent_changes(hours: int = 1) -> list:
@@ -105,6 +106,8 @@ def sync_cve_to_db(cve_id: str):
         if parsed:
             if crawler.save_cve_to_db(parsed, db):
                 db.commit()
+                unified_data = cve_to_unified_format(parsed)
+                save_to_unified(db, unified_data, "cve")
                 print(f"✅ Successfully synced {cve_id}")
                 return True
         return False

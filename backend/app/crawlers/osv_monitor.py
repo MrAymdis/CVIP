@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.database import SessionLocal
 from app.models import OSVVulnerability
+from app.services.unified_writer import save_to_unified, osv_to_unified_format
 
 
 class OSVMonitor:
@@ -121,6 +122,7 @@ class OSVMonitor:
             "withdrawn": self.parse_datetime(vuln_data.get("withdrawn")),
             "aliases": vuln_data.get("aliases"),
             "related": vuln_data.get("related"),
+            "upstream": vuln_data.get("upstream"),
             "summary": vuln_data.get("summary", ""),
             "details": vuln_data.get("details", ""),
             "affected": vuln_data.get("affected"),
@@ -156,6 +158,7 @@ class OSVMonitor:
                 existing.withdrawn = vuln_data["withdrawn"]
                 existing.aliases = vuln_data["aliases"]
                 existing.related = vuln_data["related"]
+                existing.upstream = vuln_data["upstream"]
                 existing.summary = vuln_data["summary"]
                 existing.details = vuln_data["details"]
                 existing.affected = vuln_data["affected"]
@@ -171,6 +174,7 @@ class OSVMonitor:
                     withdrawn=vuln_data["withdrawn"],
                     aliases=vuln_data["aliases"],
                     related=vuln_data["related"],
+                    upstream=vuln_data["upstream"],
                     summary=vuln_data["summary"],
                     details=vuln_data["details"],
                     affected=vuln_data["affected"],
@@ -179,8 +183,12 @@ class OSVMonitor:
                     database_specific=vuln_data["database_specific"],
                 )
                 db.add(new_vuln)
-            
+
             db.commit()
+
+            unified_data = osv_to_unified_format(vuln_data)
+            save_to_unified(db, unified_data, "osv")
+
             return True
             
         except Exception as e:

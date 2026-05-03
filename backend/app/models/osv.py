@@ -19,6 +19,7 @@ class OSVVulnerability(Base):
     withdrawn = Column(DateTime)
     aliases = Column(JSON)
     related = Column(JSON)
+    upstream = Column(JSON)
     summary = Column(Text)
     details = Column(Text)
     affected = Column(JSON)

@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class StatsOverview(BaseModel):
-    total_cves: int
+    total_vulns: int
     total_exploits: int
     total_vendors: int
     total_products: int
@@ -13,10 +13,8 @@ class StatsOverview(BaseModel):
     exploits_this_year: int
     cisa_kev_count: int
     high_severity_count: int
-    github_advisory_critical_count: int
-    github_advisory_high_count: int
-    github_advisory_medium_count: int
-    github_advisory_low_count: int
+    published_today: int
+    updated_today: int
 
 
 class TrendData(BaseModel):
