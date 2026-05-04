@@ -5,21 +5,32 @@ from datetime import datetime, timedelta, date
 from app.database import get_db
 from app.models import CVE, Exploit, Vendor, CWE, GitHubAdvisory, CNVDVulnerability, OSVVulnerability, UnifiedVulnerability
 from app.schemas import StatsResponse, StatsOverview, TrendData, VendorRank, CWERank
-from app.cache import cache_sync_result
+
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
 
 
 @router.get("/overview", response_model=StatsOverview)
-@cache_sync_result(ttl=1800, key_prefix="stats")  # 缓存30分钟
 def get_overview(db: Session = Depends(get_db)):
     """Get platform statistics overview."""
-    today = datetime.utcnow().date()
-    current_year = datetime.utcnow().year
+    today = date.today()
+    current_year = datetime.now().year
     thirty_days_ago = today - timedelta(days=30)
     one_year_ago = today - timedelta(days=365)
     
     try:
+        tomorrow = today + timedelta(days=1)
+        
+        published_today = db.query(UnifiedVulnerability).filter(
+            UnifiedVulnerability.published_date >= today,
+            UnifiedVulnerability.published_date <= tomorrow
+        ).count()
+        
+        updated_today = db.query(UnifiedVulnerability).filter(
+            UnifiedVulnerability.modified_date >= today,
+            UnifiedVulnerability.modified_date <= tomorrow
+        ).count()
+        
         result = db.query(
             func.count(UnifiedVulnerability.id).label('total_vulns'),
             func.count(case((UnifiedVulnerability.exploits_count > 0, 1))).label('total_exploits'),
@@ -27,8 +38,6 @@ def get_overview(db: Session = Depends(get_db)):
             func.count(case((UnifiedVulnerability.cisa_kev == True, 1))).label('cisa_kev_count'),
             func.count(case((func.date_part('year', UnifiedVulnerability.published_date) == current_year, 1))).label('cves_this_year'),
             func.count(case((and_(UnifiedVulnerability.exploits_count > 0, UnifiedVulnerability.published_date >= one_year_ago), 1))).label('exploits_this_year'),
-            func.count(case((func.date(UnifiedVulnerability.published_date) == today, 1))).label('published_today'),
-            func.count(case((func.date(UnifiedVulnerability.modified_date) == today, 1))).label('updated_today'),
         ).first()
         
         return StatsOverview(
@@ -41,8 +50,8 @@ def get_overview(db: Session = Depends(get_db)):
             exploits_this_year=result.exploits_this_year or 0,
             cisa_kev_count=result.cisa_kev_count or 0,
             high_severity_count=result.high_severity_count or 0,
-            published_today=result.published_today or 0,
-            updated_today=result.updated_today or 0
+            published_today=published_today or 0,
+            updated_today=updated_today or 0
         )
     except Exception as e:
         print(f"Error in get_overview: {e}")
@@ -62,7 +71,6 @@ def get_overview(db: Session = Depends(get_db)):
 
 
 @router.get("/trends")
-@cache_sync_result(ttl=3600, key_prefix="stats")  # 缓存1小时
 def get_trends(months: int = 12, db: Session = Depends(get_db)):
     """Get CVE trends over time."""
     end_date = datetime.now()
@@ -88,7 +96,6 @@ def get_trends(months: int = 12, db: Session = Depends(get_db)):
 
 
 @router.get("/vendors")
-@cache_sync_result(ttl=3600, key_prefix="stats")  # 缓存1小时
 def get_top_vendors(limit: int = 10, db: Session = Depends(get_db)):
     """Get top vendors by CVE count."""
     results = db.query(
@@ -117,7 +124,6 @@ def get_top_vendors(limit: int = 10, db: Session = Depends(get_db)):
 
 
 @router.get("/cwes")
-@cache_sync_result(ttl=3600, key_prefix="stats")  # 缓存1小时
 def get_top_cwes(limit: int = 10, db: Session = Depends(get_db)):
     """Get top CWEs by CVE count."""
     from sqlalchemy import text

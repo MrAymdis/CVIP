@@ -286,7 +286,7 @@ export default function VulnerabilityDetailPage() {
             };
           }).filter((v: AffectedVersion) => v.product || v.vendor);
           
-          if (affectedVersions.length === 0) {
+          if (affectedVersions && affectedVersions.length === 0) {
             affectedVersions = null;
           }
         }

@@ -1,18 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Search, Filter, ChevronDown, Shield, AlertTriangle, Bug, FileCode, Flame, Clock, Building, ChevronRight } from "lucide-react";
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debouncedValue;
-}
 
 interface Vulnerability {
   type: string;
@@ -108,8 +99,8 @@ interface CacheData {
   timestamp: number;
 }
 
-// 缓存有效期（5分钟）
-const CACHE_TTL = 5 * 60 * 1000;
+// 缓存有效期（3秒）
+const CACHE_TTL = 3 * 1000;
 const CACHE_KEY = 'search_page_cache';
 
 export default function SearchPage() {
@@ -152,10 +143,10 @@ export default function SearchPage() {
   });
   const [startDate, setStartDate] = useState(searchParams.get("published_after") || "");
   const [endDate, setEndDate] = useState(searchParams.get("published_before") || "");
+  const [modifiedStartDate, setModifiedStartDate] = useState(searchParams.get("modified_after") || "");
+  const [modifiedEndDate, setModifiedEndDate] = useState(searchParams.get("modified_before") || "");
   const [sortBy] = useState("published_date");
   const [sortOrder] = useState("desc");
-
-  const apiUrl = '/api';
 
   // 从缓存读取数据
   const loadFromCache = () => {
@@ -209,6 +200,8 @@ export default function SearchPage() {
       if (hasExploit === "no") params.set("has_exploit", "false");
       if (startDate) params.set("published_after", startDate);
       if (endDate) params.set("published_before", endDate);
+      if (modifiedStartDate) params.set("modified_after", modifiedStartDate);
+      if (modifiedEndDate) params.set("modified_before", modifiedEndDate);
       params.set("sort_by", sortBy);
       params.set("sort_order", sortOrder);
       params.set("page", currentPage.toString());
@@ -313,6 +306,8 @@ export default function SearchPage() {
     setHasExploit("");
     setStartDate("");
     setEndDate("");
+    setModifiedStartDate("");
+    setModifiedEndDate("");
     setPage(1);
   };
 
@@ -339,6 +334,8 @@ export default function SearchPage() {
       !hasExploit && 
       !startDate && 
       !endDate && 
+      !modifiedStartDate && 
+      !modifiedEndDate && 
       !query && 
       page === 1;
       
@@ -348,7 +345,7 @@ export default function SearchPage() {
     
     // 正常执行搜索
     doFetch(query, page);
-  }, [query, page, pageSize, severity, vulnType, hasExploit, startDate, endDate, isInitialized]);
+  }, [query, page, pageSize, severity, vulnType, hasExploit, startDate, endDate, modifiedStartDate, modifiedEndDate, isInitialized]);
 
   const fetchResults = () => {
     doFetch(query, page);
@@ -544,7 +541,7 @@ export default function SearchPage() {
             </div>
 
             {showFilters && (
-              <div className="mt-4 pt-4 border-t grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="mt-4 pt-4 border-t grid grid-cols-2 md:grid-cols-6 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-2 block">漏洞源</label>
                   <select
@@ -595,7 +592,7 @@ export default function SearchPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-2 block">开始日期</label>
+                  <label className="text-sm font-medium mb-2 block">发布开始</label>
                   <input
                     type="date"
                     value={startDate}
@@ -607,7 +604,7 @@ export default function SearchPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-2 block">结束日期</label>
+                  <label className="text-sm font-medium mb-2 block">发布结束</label>
                   <input
                     type="date"
                     value={endDate}
@@ -618,7 +615,31 @@ export default function SearchPage() {
                     className="w-full p-2 border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
-                <div className="col-span-2 md:col-span-5 flex justify-end">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">修改开始</label>
+                  <input
+                    type="date"
+                    value={modifiedStartDate}
+                    onChange={(e) => {
+                      setModifiedStartDate(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full p-2 border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">修改结束</label>
+                  <input
+                    type="date"
+                    value={modifiedEndDate}
+                    onChange={(e) => {
+                      setModifiedEndDate(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full p-2 border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div className="col-span-2 md:col-span-6 flex justify-end">
                   <button
                     onClick={resetFilters}
                     className="px-4 py-2 border rounded-lg bg-muted hover:bg-muted/80 text-sm"

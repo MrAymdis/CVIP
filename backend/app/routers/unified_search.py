@@ -27,6 +27,8 @@ def unified_search(
     cisa_kev: Optional[bool] = Query(None, description="是否CISA KEV"),
     published_after: Optional[date] = Query(None, description="发布日期开始"),
     published_before: Optional[date] = Query(None, description="发布日期结束"),
+    modified_after: Optional[date] = Query(None, description="修改日期开始"),
+    modified_before: Optional[date] = Query(None, description="修改日期结束"),
     cvss_min: Optional[float] = Query(None, description="CVSS最低评分"),
     cvss_max: Optional[float] = Query(None, description="CVSS最高评分"),
     sort_by: str = Query("published_date", description="排序字段: published_date, modified_date, cvss_v3_score"),
@@ -89,6 +91,12 @@ def unified_search(
     if published_before:
         query = query.filter(UnifiedVulnerability.published_date <= published_before)
 
+    if modified_after:
+        query = query.filter(UnifiedVulnerability.modified_date >= modified_after)
+
+    if modified_before:
+        query = query.filter(UnifiedVulnerability.modified_date <= modified_before)
+
     if cvss_min is not None:
         query = query.filter(UnifiedVulnerability.cvss_v3_score >= cvss_min)
 
@@ -107,7 +115,7 @@ def unified_search(
     query = query.offset((page - 1) * page_size).limit(page_size)
     results = query.all()
 
-    has_filters = any([q, type and type != "all", severity, cwe, affected_product, has_exploit is not None, cisa_kev is not None, published_after, published_before, cvss_min is not None, cvss_max is not None])
+    has_filters = any([q, type and type != "all", severity, cwe, affected_product, has_exploit is not None, cisa_kev is not None, published_after, published_before, modified_after, modified_before, cvss_min is not None, cvss_max is not None])
 
     if not has_filters:
         type_counts = db.query(

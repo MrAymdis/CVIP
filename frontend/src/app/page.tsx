@@ -1,93 +1,57 @@
 import Link from "next/link";
-import { Search, Shield, Database, TrendingUp, FileCode, AlertTriangle } from "lucide-react";
+import { Search, Shield, ArrowRight, Zap, Lock } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+    <section className="min-h-[calc(100vh-120px)] w-full flex flex-col justify-center items-center relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/10 dark:from-primary/10 dark:via-transparent dark:to-primary/5" />
+      <div className="absolute top-20 left-10 w-72 h-72 bg-primary/20 rounded-full blur-3xl" />
+      <div className="absolute bottom-10 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
 
-      {/* Hero Section */}
-      <section className="container mx-auto px-4 py-20 text-center">
-        <h1 className="text-4xl md:text-6xl font-bold mb-6 bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-          网络安全漏洞情报平台
-        </h1>
-        <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-          聚合14+数据源，为安全研究人员和运维人员提供全面的CVE漏洞查询、
-          Exploit代码检索和漏洞统计分析服务
-        </p>
-        
-        {/* Search Box */}
-        <div className="max-w-2xl mx-auto mb-16">
-          <Link
-            href="/search"
-            className="flex items-center gap-3 w-full px-6 py-4 bg-white dark:bg-slate-800 rounded-xl shadow-lg border hover:shadow-xl transition-shadow"
-          >
-            <Search className="h-5 w-5 text-muted-foreground" />
-            <span className="text-muted-foreground">搜索 CVE、厂商、产品...</span>
-          </Link>
-        </div>
+      <div className="relative container mx-auto px-4 py-8">
+        <div className="text-center max-w-4xl mx-auto">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-6">
+            <Zap className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-primary">14+ 权威数据源实时同步</span>
+          </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto mb-20">
-          <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border">
-            <Database className="h-8 w-8 text-primary mx-auto mb-2" />
-            <div className="text-2xl font-bold">14+</div>
-            <div className="text-sm text-muted-foreground">数据源</div>
-          </div>
-          <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border">
-            <AlertTriangle className="h-8 w-8 text-orange-500 mx-auto mb-2" />
-            <div className="text-2xl font-bold">300K+</div>
-            <div className="text-sm text-muted-foreground">CVE条目</div>
-          </div>
-          <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border">
-            <FileCode className="h-8 w-8 text-green-500 mx-auto mb-2" />
-            <div className="text-2xl font-bold">100K+</div>
-            <div className="text-sm text-muted-foreground">Exploit</div>
-          </div>
-          <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border">
-            <TrendingUp className="h-8 w-8 text-blue-500 mx-auto mb-2" />
-            <div className="text-2xl font-bold">实时</div>
-            <div className="text-sm text-muted-foreground">数据更新</div>
-          </div>
-        </div>
-
-        {/* Features */}
-        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          <div className="p-6 text-left">
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-              <Search className="h-6 w-6 text-primary" />
+          <div className="flex justify-center mb-6">
+            <div className="relative">
+              <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
+              <Shield className="h-14 w-14 text-primary relative" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">全文搜索</h3>
-            <p className="text-muted-foreground">
-              支持CVE ID、厂商、产品、描述等多维度搜索，快速定位目标漏洞
-            </p>
           </div>
-          <div className="p-6 text-left">
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-              <Shield className="h-6 w-6 text-primary" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">多源聚合</h3>
-            <p className="text-muted-foreground">
-              整合NVD、ExploitDB、GitHub、CISA KEV等14+权威数据源
-            </p>
-          </div>
-          <div className="p-6 text-left">
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-              <TrendingUp className="h-6 w-6 text-primary" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">统计分析</h3>
-            <p className="text-muted-foreground">
-              提供CVE趋势、厂商排名、CWE分布等多维度可视化统计
-            </p>
-          </div>
-        </div>
-      </section>
 
-      {/* Footer */}
-      <footer className="border-t bg-white dark:bg-slate-950 py-8">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>© 2024 网络安全漏洞情报平台 | 数据来源: NVD, ExploitDB, GitHub, CISA KEV 等</p>
+          <h1 className="text-2xl md:text-4xl font-bold mb-4 tracking-tight">
+            <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 dark:from-white dark:via-slate-200 dark:to-slate-300 bg-clip-text">
+              网络安全漏洞情报平台
+            </span>
+          </h1>
+
+          <p className="text-sm md:text-base text-slate-600 dark:text-slate-400 max-w-xl mx-auto mb-6 leading-relaxed">
+            聚合 NVD、ExploitDB、GitHub Advisory、CISA KEV 等权威数据源，
+            为安全研究人员和运维人员提供全面的漏洞查询、Exploit 检索和统计分析服务
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link
+              href="/search"
+              className="group inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold rounded-lg shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all"
+            >
+              <Search className="h-4 w-4" />
+              开始搜索
+              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+            </Link>
+            <Link
+              href="/components"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold rounded-lg shadow hover:shadow-lg hover:-translate-y-0.5 transition-all border border-slate-200 dark:border-slate-700"
+            >
+              <Lock className="h-4 w-4" />
+              组件漏洞查询
+            </Link>
+          </div>
         </div>
-      </footer>
-    </div>
+      </div>
+    </section>
   );
 }
