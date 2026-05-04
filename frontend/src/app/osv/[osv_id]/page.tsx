@@ -71,7 +71,7 @@ export default function OSVDetailPage({ params }: { params: Promise<{ osv_id: st
       setLoading(true);
       setNotFoundError(false);
       try {
-        const response = await fetch(`/api/v1/osv/${osv_id}`);
+        const response = await fetch('/api/v1/osv/' + osv_id);
         if (!response.ok) {
           setNotFoundError(true);
           return;
@@ -331,8 +331,8 @@ export default function OSVDetailPage({ params }: { params: Promise<{ osv_id: st
                           <div key={rIndex} className="text-sm">
                             {range.events.map((event, eIndex) => (
                               <span key={eIndex} className="mr-2">
-                                {event.introduced && `引入: ${event.introduced}`}
-                                {event.fixed && `修复: ${event.fixed}`}
+                                {event.introduced && '引入: ' + event.introduced}
+                                {event.fixed && '修复: ' + event.fixed}
                               </span>
                             ))}
                           </div>

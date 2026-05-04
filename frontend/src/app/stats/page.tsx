@@ -54,10 +54,10 @@ export default function StatsPage() {
     setLoading(true);
     try {
       const [overviewRes, trendsRes, vendorsRes, cwesRes] = await Promise.all([
-        fetch(`/api/v1/stats/overview`),
-        fetch(`/api/v1/stats/trends?months=12`),
-        fetch(`/api/v1/stats/vendors?limit=10`),
-        fetch(`/api/v1/stats/cwes?limit=10`),
+        fetch('/api/v1/stats/overview'),
+        fetch('/api/v1/stats/trends?months=12'),
+        fetch('/api/v1/stats/vendors?limit=10'),
+        fetch('/api/v1/stats/cwes?limit=10'),
       ]);
 
       const overviewData = await overviewRes.json();

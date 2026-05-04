@@ -10,5 +10,6 @@ from .packetstorm import PacketStormExploit
 from .github_advisory import GitHubAdvisory
 from .unified_vulnerability import UnifiedVulnerability
 from .component import Component, COMPONENT_CATEGORIES
+from .subscription import Subscription
 
-__all__ = ["CVE", "Exploit", "Reference", "Vendor", "Product", "CWE", "CNVDVulnerability", "CNVDVulnerabilityReference", "OSVVulnerability", "PacketStormExploit", "GitHubAdvisory", "UnifiedVulnerability", "Component", "COMPONENT_CATEGORIES"]
+__all__ = ["CVE", "Exploit", "Reference", "Vendor", "Product", "CWE", "CNVDVulnerability", "CNVDVulnerabilityReference", "OSVVulnerability", "PacketStormExploit", "GitHubAdvisory", "UnifiedVulnerability", "Component", "COMPONENT_CATEGORIES", "Subscription"]

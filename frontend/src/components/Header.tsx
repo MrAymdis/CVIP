@@ -11,6 +11,7 @@ export default function Header() {
     { href: "/search", label: "搜索" },
     { href: "/components", label: "组件信息" },
     { href: "/stats", label: "统计" },
+    { href: "/subscription", label: "服务订阅" },
     { href: "/about", label: "关于" },
   ];
 

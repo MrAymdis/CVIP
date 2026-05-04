@@ -193,7 +193,7 @@ export default function VulnerabilityDetailPage() {
       setLoading(true);
       setNotFoundError(false);
       try {
-        const response = await fetch(`/api/v1/search/${vuln_id}`);
+        const response = await fetch('/api/v1/search/' + vuln_id);
         if (!response.ok) {
           setNotFoundError(true);
           return;
@@ -207,14 +207,14 @@ export default function VulnerabilityDetailPage() {
         
         // 对于 CVE 类型，还要获取 references 和 exploits
         if (isCVE) {
-          const refResponse = await fetch(`/api/v1/cve/${vuln_id}/references`);
+          const refResponse = await fetch('/api/v1/cve/' + vuln_id + '/references');
           let refs: CVEReference[] = [];
           if (refResponse.ok) {
             refs = await refResponse.json();
           }
           setReferences(refs);
           
-          const exploitResponse = await fetch(`/api/v1/cve/${vuln_id}/exploits`);
+          const exploitResponse = await fetch('/api/v1/cve/' + vuln_id + '/exploits');
           let exps: Exploit[] = [];
           if (exploitResponse.ok) {
             exps = await exploitResponse.json();
@@ -223,7 +223,7 @@ export default function VulnerabilityDetailPage() {
         }
         
         // 获取关联的组件信息
-        const componentResponse = await fetch(`/api/v1/components/list?keyword=${encodeURIComponent(unifiedData.title || unifiedData.id)}`);
+        const componentResponse = await fetch('/api/v1/components/list?keyword=' + encodeURIComponent(unifiedData.title || unifiedData.id));
         if (componentResponse.ok) {
           const componentData = await componentResponse.json();
           setComponents(componentData.data || []);
@@ -330,7 +330,7 @@ export default function VulnerabilityDetailPage() {
     
     const typeParam = isCVE ? 'cve' : isCNVD ? 'cnvd' : isGHSA ? 'github_advisory' : 'osv';
     
-    fetch(`/api/v1/search/${vuln_id}/view?type=${typeParam}`, { method: 'POST' })
+    fetch('/api/v1/search/' + vuln_id + '/view?type=' + typeParam, { method: 'POST' })
       .catch(err => console.error('Failed to increment view count:', err));
   }, [vuln_id, isCVE, isCNVD, isGHSA]);
   
@@ -618,7 +618,7 @@ export default function VulnerabilityDetailPage() {
               {data.related_cve_ids.map((cve_id, index) => (
                 <a
                   key={index}
-                  href={`/vuln/${cve_id}`}
+                  href={'/vuln/' + cve_id}
                   className="px-3 py-1 bg-muted rounded-full text-sm hover:bg-accent transition-colors"
                 >
                   {cve_id}

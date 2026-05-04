@@ -68,7 +68,8 @@ def search_components(
             "product_version": comp.product_version,
             "ecosystem": comp.ecosystem,
             "recognition_support": comp.recognition_support,
-            "vuln_count": len(comp.related_vuln_ids) if comp.related_vuln_ids else 0
+            "vuln_count": len(comp.related_vuln_ids) if comp.related_vuln_ids else 0,
+            "related_vuln_ids": comp.related_vuln_ids if comp.related_vuln_ids else []
         })
 
     return {
@@ -116,7 +117,7 @@ def get_component_detail(component_id: str, db: Session = Depends(get_db)):
 
 @router.post("/sync", summary="同步组件数据")
 def sync_components(
-    limit: Optional[int] = Query(10000, description="同步漏洞数量限制"),
+    limit: Optional[int] = Query(None, description="同步漏洞数量限制，不传则处理所有"),
     db: Session = Depends(get_db)
 ):
     """从漏洞数据同步组件信息"""

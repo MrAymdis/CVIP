@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 from app.config import settings
-from app.routers import cve, stats, vulnerability, unified_search, osv, github_advisory, cwe, components
+from app.routers import cve, stats, vulnerability, unified_search, osv, github_advisory, cwe, components, subscription
 from app.database import engine, Base
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ app.include_router(github_advisory.router, prefix=settings.API_V1_PREFIX + "/git
 app.include_router(stats.router, prefix=settings.API_V1_PREFIX, tags=["Stats"])
 app.include_router(cwe.router, prefix=settings.API_V1_PREFIX + "/cwe", tags=["CWE"])
 app.include_router(components.router, prefix=settings.API_V1_PREFIX, tags=["Components"])
+app.include_router(subscription.router, prefix=settings.API_V1_PREFIX, tags=["Subscription"])
 
 
 @app.exception_handler(SQLAlchemyError)

@@ -4,6 +4,7 @@
 """
 import re
 import json
+import hashlib
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 from app.models import UnifiedVulnerability, Component
@@ -162,9 +163,9 @@ def parse_cve_affected(affected_list: List[Dict]) -> List[Dict]:
     for item in affected_list:
         if not isinstance(item, dict):
             continue
-            
-        vendor = item.get('vendor', '').strip()
-        product = item.get('product', '').strip()
+
+        vendor = (item.get('vendor') or '').strip()
+        product = (item.get('product') or '').strip()
         
         # 提取版本信息
         versions = []
@@ -370,94 +371,208 @@ def parse_affected_data(affected_data, vuln_type: str) -> List[Dict]:
         return parse_cnvd_affected(affected_data)
 
 
-def sync_components_from_vulnerabilities(db: Session, limit: int = 10000):
+def truncate(s, max_len=500):
+    if s and len(s) > max_len:
+        return s[:max_len]
+    return s
+
+
+def sync_components_fast(db: Session, batch_size: int = 5000):
+    """
+    快速同步组件信息 - 使用批量处理
+    """
+    print('=' * 60)
+    print('Starting FAST component sync...')
+    print('=' * 60)
+
+    from sqlalchemy import text
+
+    added = 0
+    updated = 0
+
+    offset = 0
+    while True:
+        query = db.query(
+            UnifiedVulnerability.vuln_id,
+            UnifiedVulnerability.type,
+            UnifiedVulnerability.affected
+        ).filter(
+            UnifiedVulnerability.affected.isnot(None)
+        ).offset(offset).limit(batch_size)
+
+        vulns = query.all()
+
+        if not vulns:
+            break
+
+        batch_processed_ids = set()
+
+        for vuln in vulns:
+            affected_items = parse_affected_data(vuln.affected, vuln.type)
+
+            for item in affected_items:
+                vendor = item.get('vendor')
+                product = item.get('product')
+                version = item.get('version')
+                ecosystem = item.get('ecosystem')
+
+                if not product:
+                    continue
+
+                component_id_base = re.sub(r'[^a-zA-Z0-9_-]', '-', product.lower())[:50]
+                stable_hash = hashlib.md5(product.encode()).hexdigest()[:8]
+                component_id = f"cmp-{component_id_base}-{stable_hash}"
+
+                if component_id in batch_processed_ids:
+                    continue
+
+                existing = db.query(Component).filter(
+                    Component.component_id == component_id
+                ).first()
+
+                batch_processed_ids.add(component_id)
+
+                category = infer_category(product, ecosystem)
+
+                if existing:
+                    for key, value in {
+                        'name': truncate(product),
+                        'vendor_name': truncate(vendor) if vendor else None,
+                        'category': category,
+                        'product_name': truncate(product),
+                        'product_version': truncate(version) if version else None,
+                        'ecosystem': truncate(ecosystem) if ecosystem else None,
+                        'data_source': vuln.type.upper(),
+                    }.items():
+                        if value:
+                            setattr(existing, key, value)
+
+                    if vuln.vuln_id not in (existing.related_vuln_ids or []):
+                        existing.related_vuln_ids = (existing.related_vuln_ids or []) + [vuln.vuln_id]
+                        updated += 1
+                else:
+                    new_component = Component(
+                        name=truncate(product),
+                        component_id=component_id,
+                        vendor_name=truncate(vendor) if vendor else None,
+                        category=category,
+                        product_name=truncate(product),
+                        product_version=truncate(version) if version else None,
+                        ecosystem=truncate(ecosystem) if ecosystem else None,
+                        data_source=vuln.type.upper(),
+                        related_vuln_ids=[vuln.vuln_id],
+                    )
+                    db.add(new_component)
+                    batch_processed_ids.add(component_id)
+                    added += 1
+
+        db.commit()
+        offset += batch_size
+
+        if offset % 50000 == 0:
+            print(f'  Processed: {offset}, Added: {added}, Updated: {updated}')
+
+    print('=' * 60)
+    print(f'FAST sync completed!')
+    print(f'  Added components: {added}')
+    print(f'  Updated components: {updated}')
+    print('=' * 60)
+
+    return added, updated
+
+
+def sync_components_from_vulnerabilities(db: Session, limit: int = None):
     """
     从漏洞数据同步组件信息
+    遍历 unified_vulnerability 表的 affected 字段，提取组件信息和关联漏洞ID
     """
     print('=' * 60)
     print('Starting component sync from vulnerabilities...')
     print('=' * 60)
-    
-    # 获取有 affected 数据的漏洞
+
     query = db.query(UnifiedVulnerability).filter(
         UnifiedVulnerability.affected.isnot(None)
-    ).limit(limit)
-    
+    )
+    if limit:
+        query = query.limit(limit)
+
     processed = 0
     added = 0
     updated = 0
-    processed_component_ids = set()
-    
+    skipped = 0
+
     for vuln in query:
-        if processed % 1000 == 0:
-            print(f'  Processed: {processed}, Added: {added}, Updated: {updated}')
-        
+        if processed % 1000 == 0 and processed > 0:
+            print(f'  Processed: {processed}, Added: {added}, Updated: {updated}, Skipped: {skipped}')
+            db.commit()
+
         affected_items = parse_affected_data(vuln.affected, vuln.type)
-        
+
         for item in affected_items:
             vendor = item.get('vendor')
             product = item.get('product')
             version = item.get('version')
             ecosystem = item.get('ecosystem')
-            
+
             if not product:
                 continue
-            
+
             component_id_base = re.sub(r'[^a-zA-Z0-9_-]', '-', product.lower())[:50]
-            component_id = f"cmp-{component_id_base}-{hash(product) % 10000:04d}"
-            
-            # 跳过已处理过的组件（跨漏洞）
-            if component_id in processed_component_ids:
-                continue
-            processed_component_ids.add(component_id)
-            
+            stable_hash = hashlib.md5(product.encode()).hexdigest()[:8]
+            component_id = f"cmp-{component_id_base}-{stable_hash}"
+
             existing = db.query(Component).filter(
                 Component.component_id == component_id
             ).first()
-            
+
             category = infer_category(product, ecosystem)
-            
-            component_data = {
-                'name': product,
-                'component_id': component_id,
-                'vendor_name': vendor,
-                'category': category,
-                'product_name': product,
-                'product_version': version,
-                'ecosystem': ecosystem,
-                'data_source': vuln.type.upper(),
-                'related_vuln_ids': [],
-            }
-            
+
             if existing:
-                for key, value in component_data.items():
+                for key, value in {
+                    'name': product,
+                    'vendor_name': vendor,
+                    'category': category,
+                    'product_name': product,
+                    'product_version': version,
+                    'ecosystem': ecosystem,
+                    'data_source': vuln.type.upper(),
+                }.items():
                     if value:
                         setattr(existing, key, value)
-                
+
                 if vuln.vuln_id not in (existing.related_vuln_ids or []):
                     existing.related_vuln_ids = (existing.related_vuln_ids or []) + [vuln.vuln_id]
-                
-                updated += 1
+                    updated += 1
+                else:
+                    skipped += 1
             else:
-                component_data['related_vuln_ids'] = [vuln.vuln_id]
-                new_component = Component(**component_data)
+                new_component = Component(
+                    name=product,
+                    component_id=component_id,
+                    vendor_name=vendor,
+                    category=category,
+                    product_name=product,
+                    product_version=version,
+                    ecosystem=ecosystem,
+                    data_source=vuln.type.upper(),
+                    related_vuln_ids=[vuln.vuln_id],
+                )
                 db.add(new_component)
+                db.flush()
                 added += 1
-        
+
         processed += 1
-        
-        if processed % 100 == 0:
-            db.commit()
-    
+
     db.commit()
-    
+
     print('=' * 60)
     print(f'Component sync completed!')
     print(f'  Total processed vulnerabilities: {processed}')
     print(f'  Added components: {added}')
     print(f'  Updated components: {updated}')
+    print(f'  Skipped (already associated): {skipped}')
     print('=' * 60)
-    
+
     return added, updated
 
 

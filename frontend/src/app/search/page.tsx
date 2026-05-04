@@ -214,9 +214,9 @@ export default function SearchPage() {
       params.set("page", currentPage.toString());
       params.set("page_size", pageSize.toString());
 
-      const response = await fetch(`/api/v1/search?${params.toString()}`);
+      const response = await fetch('/api/v1/search?' + params.toString());
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error("HTTP error! status: " + response.status);
       }
       const data = await response.json();
       setResults(data);
@@ -236,9 +236,9 @@ export default function SearchPage() {
       const timeout = setTimeout(() => controller.abort(), 10000);
 
       const [statsResponse, hotResponse, searchResponse] = await Promise.all([
-        fetch(`/api/v1/stats/overview`, { signal: controller.signal }),
-        fetch(`/api/v1/search/top-viewed?limit=10`, { signal: controller.signal }),
-        fetch(`/api/v1/search?page=1&page_size=10`, { signal: controller.signal })
+        fetch('/api/v1/stats/overview', { signal: controller.signal }),
+        fetch('/api/v1/search/top-viewed?limit=10', { signal: controller.signal }),
+        fetch('/api/v1/search?page=1&page_size=10', { signal: controller.signal })
       ]);
 
       clearTimeout(timeout);
@@ -256,7 +256,7 @@ export default function SearchPage() {
           console.error("Failed to parse stats JSON:", e);
         }
       } else {
-        console.error(`Stats API error: ${statsResponse.status}`);
+        console.error("Stats API error: " + statsResponse.status);
       }
 
       if (hotResponse.ok) {
@@ -280,7 +280,7 @@ export default function SearchPage() {
           console.error("Failed to parse hot vulns JSON:", e);
         }
       } else {
-        console.error(`Hot vulns API error: ${hotResponse.status}`);
+        console.error("Hot vulns API error: " + hotResponse.status);
       }
 
       if (searchResponse.ok) {
@@ -292,7 +292,7 @@ export default function SearchPage() {
           console.error("Failed to parse search JSON:", e);
         }
       } else {
-        console.error(`Search API error: ${searchResponse.status}`);
+        console.error("Search API error: " + searchResponse.status);
       }
 
       saveToCache(newResults, newStats, newHotVulns);
@@ -465,8 +465,8 @@ export default function SearchPage() {
                 <div className="flex gap-4 animate-marquee">
                   {[...hotVulns, ...hotVulns].map((vuln, idx) => (
                     <Link
-                      key={`${vuln.id}-${idx}`}
-                      href={`/vuln/${vuln.id}`}
+                      key={vuln.id + '-' + idx}
+                      href={'/vuln/' + vuln.id}
                       className="block p-4 bg-white dark:bg-slate-800 rounded-xl border hover:shadow-md transition-all hover:-translate-y-0.5 w-64 shrink-0"
                     >
                       <div className="flex items-center gap-2 mb-2">
@@ -639,8 +639,8 @@ export default function SearchPage() {
             <div className="divide-y divide-slate-200 dark:divide-slate-700">
               {results.data.map((vuln, index) => (
                 <Link
-                  key={`${vuln.type}-${vuln.id}-${index}`}
-                  href={`/vuln/${vuln.id}`}
+                  key={vuln.type + '-' + vuln.id + '-' + index}
+                  href={'/vuln/' + vuln.id}
                   className="block p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -679,7 +679,7 @@ export default function SearchPage() {
                         <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${
                           severityColors[vuln.severity] || "bg-gray-500 text-white"
                         }`}>
-                          {vuln.cvss_score ? `${vuln.cvss_score.toFixed(1)} ` : ""}
+                          {vuln.cvss_score ? vuln.cvss_score.toFixed(1) + ' ' : ""}
                           {severityLabels[vuln.severity] || vuln.severity}
                         </span>
                       )}
