@@ -11,12 +11,14 @@ from datetime import date, datetime, timedelta
 
 from app.database import get_db
 from app.models import UnifiedVulnerability
+from app.cache import cache_sync_result
 
 router = APIRouter()
 
 
 @router.get("/")
 @router.get("")
+@cache_sync_result(ttl=300, key_prefix="search")  # 缓存5分钟
 def unified_search(
     q: Optional[str] = Query(None, description="搜索关键词"),
     type: Optional[str] = Query(None, description="漏洞源类型: cve, cnvd, osv, ghsa, all"),

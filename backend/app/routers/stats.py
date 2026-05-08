@@ -5,12 +5,14 @@ from datetime import datetime, timedelta, date
 from app.database import get_db
 from app.models import CVE, Exploit, Vendor, CWE, GitHubAdvisory, CNVDVulnerability, OSVVulnerability, UnifiedVulnerability
 from app.schemas import StatsResponse, StatsOverview, TrendData, VendorRank, CWERank
+from app.cache import cache_sync_result
 
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
 
 
 @router.get("/overview", response_model=StatsOverview)
+@cache_sync_result(ttl=300, key_prefix="stats")  # 缓存5分钟
 def get_overview(db: Session = Depends(get_db)):
     """Get platform statistics overview."""
     today = date.today()
